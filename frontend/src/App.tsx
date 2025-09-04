@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { ChevronRight, Upload, FileText, Check, X, Download, Save, Eye, Settings, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { ChevronRight, Upload, FileText, Check, Save } from 'lucide-react';
 import axios from 'axios';
 
 const API_BASE_URL = 'http://localhost:5000/api';
@@ -14,12 +14,22 @@ interface ProcessedResult {
   fileName: string;
   original: any[];
   redacted: any[];
+  diff_file?: string;
   metrics?: {
     accuracy: number;
     precision: number;
     recall: number;
     kappa: number;
   };
+}
+
+declare global {
+  interface Window {
+    Diff2Html: any;
+    Diff2HtmlUI: any;
+    jQuery: any;
+    $: any;
+  }
 }
 
 interface Prompt {
@@ -36,15 +46,15 @@ function App() {
   const [selectedPromptId, setSelectedPromptId] = useState(1);
   const [availablePrompts, setAvailablePrompts] = useState<Prompt[]>([]);
   const [customPrompt, setCustomPrompt] = useState('');
-  const [showPromptModal, setShowPromptModal] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [processedData, setProcessedData] = useState<ProcessedResult[] | null>(null);
   const [folderName, setFolderName] = useState('redacted_output');
-  const [redactionStates, setRedactionStates] = useState<{[key: string]: boolean[]}>({});
+  const [redactionStates, setRedactionStates] = useState<{[key: string]: any}>({});
+  const diffContainerRef = useRef<HTMLDivElement>(null);
+  const [currentDiff, setCurrentDiff] = useState<string>('');
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState('');
-  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
 
   // Load available prompts on mount
   useEffect(() => {
@@ -109,7 +119,7 @@ function App() {
 
   const processFiles = async () => {
     if (!apiKey) {
-      setShowApiKeyModal(true);
+      alert('Please enter your OpenAI API key');
       return;
     }
 
@@ -131,14 +141,13 @@ function App() {
       });
       
       const results = response.data.results;
+      console.log('Processing results:', results);
       
-      // Initialize redaction states
-      const initialStates: {[key: string]: boolean[]} = {};
+      // Initialize redaction states for tracking checkbox states
+      const initialStates: {[key: string]: any} = {};
       results.forEach((result: ProcessedResult) => {
-        result.redacted.forEach((item: any) => {
-          const redactedParts = (item.post_text_OpenAI_redacted || item.post_text || '').match(/\[REDACTED\]/g) || [];
-          initialStates[`${result.fileName}-${item.id}`] = new Array(redactedParts.length).fill(true);
-        });
+        initialStates[result.fileName] = {};
+        console.log(`File ${result.fileName} has diff_file:`, !!result.diff_file);
       });
       
       setProcessedData(results);
@@ -156,36 +165,181 @@ function App() {
     }
   };
 
-  const toggleRedaction = (fileId: string, index: number) => {
-    setRedactionStates(prev => ({
-      ...prev,
-      [fileId]: prev[fileId].map((state, i) => i === index ? !state : state)
-    }));
+  // Check if libraries are loaded on mount
+  useEffect(() => {
+    const checkLibraries = () => {
+      console.log('Library check:');
+      console.log('- window.Diff2Html:', typeof window.Diff2Html);
+      console.log('- window.Diff2HtmlUI:', typeof window.Diff2HtmlUI);
+      console.log('- window.jQuery:', typeof window.jQuery);
+      
+      if (!window.Diff2Html) {
+        console.error('Diff2Html not loaded! Check if script is included correctly.');
+      }
+    };
+    
+    // Check immediately and after a delay
+    checkLibraries();
+    setTimeout(checkLibraries, 1000);
+  }, []);
+
+  // Initialize diff2html when component updates
+  useEffect(() => {
+    if (currentDiff && diffContainerRef.current) {
+      // Add a small delay to ensure DOM is ready
+      setTimeout(() => {
+        renderDiff2Html();
+      }, 100);
+    }
+  }, [currentDiff]);
+
+  // Render diff using diff2html
+  const renderDiff2Html = () => {
+    if (!diffContainerRef.current || !currentDiff) {
+      console.log('Missing refs or diff:', { hasRef: !!diffContainerRef.current, hasDiff: !!currentDiff });
+      return;
+    }
+    
+    console.log('Current diff string:', currentDiff);
+    console.log('Diff2Html available:', !!window.Diff2Html);
+    
+    const targetElement = diffContainerRef.current;
+    
+    // Clear previous content
+    targetElement.innerHTML = '';
+    
+    // Check if Diff2Html is available
+    if (!window.Diff2Html) {
+      console.error('Diff2Html is not loaded');
+      targetElement.innerHTML = '<div>Error: Diff2Html library not loaded</div>';
+      return;
+    }
+    
+    // Use diff2html to render the diff
+    const diffHtml = window.Diff2Html.html(currentDiff, {
+      drawFileList: true,
+      outputFormat: 'side-by-side',
+      matching: 'words'
+    });
+    
+    console.log('Generated HTML length:', diffHtml.length);
+    targetElement.innerHTML = diffHtml;
+    
+    // Initialize UI features
+    const diff2htmlUi = new window.Diff2HtmlUI(targetElement);
+    diff2htmlUi.fileListToggle(false);
+    diff2htmlUi.fileContentToggle();
+    diff2htmlUi.synchronisedScroll();
+    
+    // Add checkbox functionality
+    initializeCheckboxes();
+  };
+  
+  // Initialize checkbox functionality (ported from example)
+  const initializeCheckboxes = () => {
+    const $ = window.jQuery;
+    if (!$) return;
+    
+    // Arrays to track text states
+    const insTexts: any[] = [];
+    const delTexts: any[] = [];
+    const currentTexts: any[] = [];
+    
+    // DEBUG: Let's see exactly what HTML diff2html generated
+    console.log('=== DEBUGGING DIFF2HTML OUTPUT ===');
+    
+    // Process inserted text (redacted)
+    $('span.d2h-code-line-ctn ins').each(function(this: any, index: number) {
+      const insText = $(this).text();
+      console.log(`INS[${index}]: "${insText}"`);
+      insTexts.push($(this));
+      currentTexts.push('[REDACTED]');
+    });
+    
+    // Simple approach: create checkbox for each DEL, let misalignment happen naturally
+    $('span.d2h-code-line-ctn del').each(function(this: any, index: number) {
+      const delText = $(this).text();
+      console.log(`Creating checkbox for DEL[${index}]: "${delText}"`);
+      
+      // Always create a checkbox
+      const checkbox = $('<input type="checkbox" class="insert-checkbox" />');
+      $(this).after(checkbox);
+      delTexts.push(delText);
+      
+      // Handle checkbox change - only if there's a corresponding INS
+      checkbox.change(function(this: any) {
+        if (index < insTexts.length) {
+          if ($(this).is(':checked')) {
+            currentTexts[index] = delText;
+            $(insTexts[index]).text(delText);
+            console.log(`Checkbox ${index} checked: Set INS[${index}] to "${delText}"`);
+          } else {
+            currentTexts[index] = '[REDACTED]';
+            $(insTexts[index]).text('[REDACTED]');
+            console.log(`Checkbox ${index} unchecked: Set INS[${index}] to "[REDACTED]"`);
+          }
+        } else {
+          console.log(`Checkbox ${index} has no corresponding INS element`);
+        }
+        updateRedactionState(currentTexts);
+      });
+    });
+    
+    console.log(`=== SUMMARY ===`);
+    console.log(`Found ${insTexts.length} ins elements and ${delTexts.length} del elements`);
+    console.log(`Alignment issue: ${delTexts.length > insTexts.length ? 'YES' : 'NO'}`);
+    console.log('================');
+  };
+  
+  // Update redaction state for saving
+  const updateRedactionState = (currentTexts: string[]) => {
+    if (selectedFile) {
+      setRedactionStates(prev => ({
+        ...prev,
+        [selectedFile]: currentTexts
+      }));
+    }
   };
 
-  const getProcessedText = (fileName: string, item: any) => {
-    const fileId = `${fileName}-${item.id}`;
-    const states = redactionStates[fileId] || [];
-    const redactedText = item.post_text_OpenAI_redacted || item.post_text || '';
+  // Extract final text from diff2html DOM
+  const extractFinalText = () => {
+    const $ = window.jQuery;
+    if (!$) return {};
     
-    if (states.length === 0) return redactedText;
+    const allFiles: {[key: string]: string} = {};
     
-    // For now, return the redacted text as is
-    // In a full implementation, you'd apply the checkbox states here
-    return redactedText;
+    $('.d2h-file-wrapper').each(function(this: any) {
+      const fileName = $(this).find('.d2h-file-name').text().trim();
+      let fileContent = '';
+      
+      $(this).find('.d2h-ins').find('span.d2h-code-line-ctn').each(function(this: any) {
+        const lineElement = $(this).clone();
+        lineElement.find('input.insert-checkbox').remove();
+        
+        // Get the current text (either original or redacted based on checkbox state)
+        const lineText = lineElement.text().trim();
+        fileContent += lineText + '\n';
+      });
+      
+      allFiles[fileName] = fileContent;
+    });
+    
+    return allFiles;
   };
 
   const saveAll = async () => {
     if (!sessionId || !processedData) return;
     
     try {
+      // Extract final text from diff2html DOM
+      const finalTexts = extractFinalText();
+      
       // Update redactions on server
-      const updates = Object.entries(redactionStates).map(([fileId, states]) => {
-        const [fileName, itemId] = fileId.split('-');
+      const updates = Object.entries(finalTexts).map(([fileName, finalText]) => {
         return {
           fileName,
-          itemId: parseInt(itemId),
-          states
+          itemId: 0, // Adjust based on your needs
+          finalText
         };
       });
       
@@ -204,45 +358,28 @@ function App() {
     }
   };
 
-  const renderDiffView = (fileName: string, item: any) => {
-    const fileId = `${fileName}-${item.id}`;
-    const states = redactionStates[fileId] || [];
-    const originalText = item.original_text || item.post_text_original || '';
-    const redactedText = item.post_text_OpenAI_redacted || item.post_text || '';
-    
-    return (
-      <div className="grid grid-cols-2 gap-4">
-        <div className="border rounded-lg overflow-hidden">
-          <div className="bg-gray-100 px-4 py-2 font-semibold border-b">Original</div>
-          <div className="p-4 font-mono text-sm whitespace-pre-wrap">
-            {originalText}
-          </div>
-        </div>
-        
-        <div className="border rounded-lg overflow-hidden">
-          <div className="bg-gray-100 px-4 py-2 font-semibold border-b flex justify-between items-center">
-            <span>Redacted</span>
-            <div className="flex gap-2">
-              {states.map((isRedacted, idx) => (
-                <label key={idx} className="flex items-center gap-1 text-sm font-normal">
-                  <input
-                    type="checkbox"
-                    checked={!isRedacted}
-                    onChange={() => toggleRedaction(fileId, idx)}
-                    className="w-4 h-4"
-                  />
-                  <span>Undo {idx + 1}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-          <div className="p-4 font-mono text-sm whitespace-pre-wrap">
-            {redactedText}
-          </div>
-        </div>
-      </div>
-    );
-  };
+  // Update selected file to show diff
+  useEffect(() => {
+    if (selectedFile && processedData) {
+      const fileData = processedData.find(f => f.fileName === selectedFile);
+      console.log('Selected file data:', fileData);
+      if (fileData?.diff_file) {
+        console.log('Fetching diff file:', fileData.diff_file);
+        // Fetch the diff file from the server
+        fetch(`${API_BASE_URL}/diff/${fileData.diff_file}`)
+          .then(response => response.text())
+          .then(diff => {
+            console.log('Fetched diff content:', diff.substring(0, 200) + '...');
+            setCurrentDiff(diff);
+          })
+          .catch(error => {
+            console.error('Error fetching diff:', error);
+          });
+      } else {
+        console.log('No diff file found for file:', selectedFile);
+      }
+    }
+  }, [selectedFile, processedData]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-purple-700">
@@ -521,21 +658,14 @@ function App() {
                     ))}
                   </div>
 
-                  {/* Diff View */}
-                  {selectedFile && (
-                    <div className="space-y-6 bg-white rounded-lg p-4 max-h-96 overflow-y-auto">
-                      {processedData
-                        .find(f => f.fileName === selectedFile)
-                        ?.redacted.map((item) => (
-                          <div key={item.id} className="border-b pb-4 last:border-0">
-                            <div className="text-sm font-semibold text-gray-600 mb-2">
-                              Post ID: {item.id}
-                            </div>
-                            {renderDiffView(selectedFile, item)}
-                          </div>
-                        ))}
-                    </div>
-                  )}
+                  {/* Diff View using diff2html */}
+                  <div ref={diffContainerRef} className="bg-white rounded-lg p-4 overflow-auto" style={{ maxHeight: '600px' }}>
+                    {!currentDiff && selectedFile && (
+                      <div className="text-gray-500 text-center py-8">
+                        Loading diff view...
+                      </div>
+                    )}
+                  </div>
 
                   <div className="flex justify-center gap-4 mt-6">
                     <button

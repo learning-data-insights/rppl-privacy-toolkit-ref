@@ -1,0 +1,131 @@
+import difflib
+import re
+from typing import List, Dict, Any
+
+class DiffGenerator:
+    """Generates unified diff format for comparing original and redacted text"""
+    
+    @staticmethod
+    def normalize_spacing(text: str) -> str:
+        """
+        Normalize spacing to prevent false diff chunks.
+        - Reduces multiple spaces to single space
+        - Preserves line breaks
+        """
+        lines = []
+        for line in text.split('\n'):
+            # Reduce multiple spaces to single space within each line
+            normalized_line = re.sub(r' +', ' ', line).strip()
+            lines.append(normalized_line)
+        return '\n'.join(lines)
+    
+    @staticmethod
+    def generate_diff(original_text: str, redacted_text: str, filename: str = "text") -> str:
+        """
+        Generate a unified diff between original and redacted text.
+        
+        Args:
+            original_text: The original text with sensitive information
+            redacted_text: The text with [REDACTED] replacements
+            filename: The filename to use in the diff header
+        
+        Returns:
+            A unified diff string compatible with diff2html
+        """
+        # Handle empty texts
+        if not original_text:
+            original_text = ""
+        if not redacted_text:
+            redacted_text = ""
+        
+        # Normalize spacing to prevent misalignment issues
+        original_normalized = DiffGenerator.normalize_spacing(original_text)
+        redacted_normalized = DiffGenerator.normalize_spacing(redacted_text)
+            
+        # Split texts into lines for comparison
+        original_lines = original_normalized.splitlines(keepends=False)
+        redacted_lines = redacted_normalized.splitlines(keepends=False)
+        
+        # Handle empty lines case
+        if not original_lines:
+            original_lines = ['']
+        if not redacted_lines:
+            redacted_lines = ['']
+        
+        # Generate unified diff
+        diff = difflib.unified_diff(
+            original_lines,
+            redacted_lines,
+            fromfile=f'original/{filename}',
+            tofile=f'new/{filename}',
+            lineterm='',
+            n=3  # Context lines
+        )
+        
+        # Convert generator to list and join
+        diff_lines = list(diff)
+        
+        return '\n'.join(diff_lines)
+    
+    @staticmethod
+    def generate_multi_file_diff(file_pairs: List[Dict[str, Any]]) -> str:
+        """
+        Generate a combined unified diff for multiple file pairs.
+        
+        Args:
+            file_pairs: List of dictionaries containing:
+                - 'filename': Name of the file
+                - 'original': Original text
+                - 'redacted': Redacted text
+        
+        Returns:
+            A combined unified diff string for all files
+        """
+        all_diffs = []
+        
+        for pair in file_pairs:
+            filename = pair.get('filename', 'text.txt')
+            original = pair.get('original', '')
+            redacted = pair.get('redacted', '')
+            
+            # Generate diff for this file pair
+            diff = DiffGenerator.generate_diff(original, redacted, filename)
+            
+            if diff:  # Only add if there are differences
+                all_diffs.append(diff)
+        
+        # Join all diffs with a newline separator
+        return '\n'.join(all_diffs)
+    
+    @staticmethod
+    def generate_csv_diff(original_data: List[Dict], redacted_data: List[Dict], 
+                         filename: str = "data.csv") -> str:
+        """
+        Generate a unified diff for CSV data by comparing text fields.
+        
+        Args:
+            original_data: List of original data records
+            redacted_data: List of redacted data records
+            filename: The filename to use in the diff header
+        
+        Returns:
+            A unified diff string
+        """
+        # Extract text content from records
+        original_texts = []
+        redacted_texts = []
+        
+        for orig, red in zip(original_data, redacted_data):
+            # Get the main text field (adjust based on your data structure)
+            orig_text = orig.get('post_text_original') or orig.get('post_text', '')
+            red_text = red.get('post_text_OpenAI_redacted') or red.get('post_text', '')
+            
+            if orig_text or red_text:
+                original_texts.append(f"Post ID: {orig.get('id', 'unknown')}\n{orig_text}")
+                redacted_texts.append(f"Post ID: {red.get('id', 'unknown')}\n{red_text}")
+        
+        # Combine all texts with proper line breaks
+        original_combined = '\n\n'.join(original_texts) if original_texts else 'No original text'
+        redacted_combined = '\n\n'.join(redacted_texts) if redacted_texts else 'No redacted text'
+        
+        return DiffGenerator.generate_diff(original_combined, redacted_combined, filename)

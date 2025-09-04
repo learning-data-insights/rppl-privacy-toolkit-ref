@@ -13,6 +13,7 @@ import zipfile
 from services.deidentification_service import DeidentificationService
 from services.evaluation_service import EvaluationService
 from utils.file_handler import FileHandler
+from utils.diff_generator import DiffGenerator
 
 app = Flask(__name__)
 CORS(app, origins=['http://localhost:3000', 'http://localhost:5173'])
@@ -149,11 +150,25 @@ def deidentify():
                         df
                     )
             
+            # Generate diff for this file
+            diff_string = DiffGenerator.generate_csv_diff(
+                file_info['data'], 
+                redacted_data,
+                file_info['name']
+            )
+            
+            # Save diff to a file for this session
+            diff_filename = f"{session_id}_{file_info['name']}.diff"
+            diff_path = os.path.join(app.config['RESULTS_FOLDER'], diff_filename)
+            with open(diff_path, 'w', encoding='utf-8') as f:
+                f.write(diff_string)
+            
             results.append({
                 'fileName': file_info['name'],
                 'original': convert_to_json_serializable(file_info['data']),
                 'redacted': convert_to_json_serializable(redacted_data),
-                'metrics': convert_to_json_serializable(metrics) if metrics else None
+                'metrics': convert_to_json_serializable(metrics) if metrics else None,
+                'diff_file': diff_filename  # Store filename instead of content
             })
         
         session['processed'] = True
@@ -188,17 +203,43 @@ def update_redactions():
             for update in updates:
                 file_name = update.get('fileName')
                 item_id = update.get('itemId')
-                new_text = update.get('text')
+                # Accept both 'text' and 'finalText' for backwards compatibility
+                new_text = update.get('finalText') or update.get('text')
                 
                 # Find and update the specific item
                 for result in session['results']:
                     if result['fileName'] == file_name:
                         for item in result['redacted']:
                             if item.get('id') == item_id:
-                                item['post_text'] = new_text
+                                # Update the redacted text
+                                if 'post_text_OpenAI_redacted' in item:
+                                    item['post_text_OpenAI_redacted'] = new_text
+                                else:
+                                    item['post_text'] = new_text
                                 break
         
         return jsonify({'success': True})
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/diff/<filename>', methods=['GET'])
+def get_diff(filename):
+    """Serve diff files as plain text"""
+    try:
+        # Sanitize filename to prevent directory traversal
+        safe_filename = secure_filename(filename)
+        diff_path = os.path.join(app.config['RESULTS_FOLDER'], safe_filename)
+        
+        if not os.path.exists(diff_path):
+            return jsonify({'error': 'Diff file not found'}), 404
+        
+        with open(diff_path, 'r', encoding='utf-8') as f:
+            diff_content = f.read()
+        
+        # Return as plain text with proper headers
+        from flask import Response
+        return Response(diff_content, mimetype='text/plain')
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
