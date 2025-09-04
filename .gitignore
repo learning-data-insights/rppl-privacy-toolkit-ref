@@ -81,7 +81,9 @@ desktop.ini
 temp/
 tmp/
 temp_uploads/
+example/
 uploads/
+backend/results
 
 # Package lock files (optional - uncomment if you want to ignore)
 # package-lock.json
