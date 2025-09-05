@@ -51,16 +51,20 @@ class DeidentificationService:
             print(f"API call error for post_text: {post_text[:50]}", str(e))
             return "API_ERROR"
     
-    def process_dataframe(self, df, prompt_index=0):
+    def process_dataframe(self, df, prompt_index=0, prompt_text: str = None):
         """Process a dataframe using the logic from de_identified_csv_generator.py"""
         if not self.client:
             raise ValueError("API key not set")
         
         # Get prompt from loaded prompts or use default
-        if prompt_index < len(self.prompts_df):
-            prompt = self.prompts_df['prompt'].iloc[prompt_index]
+        # If a session-provided prompt_text exists, use that (session-only override)
+        if prompt_text:
+            prompt = prompt_text
         else:
-            prompt = self.default_prompt
+            if prompt_index < len(self.prompts_df):
+                prompt = self.prompts_df['prompt'].iloc[prompt_index]
+            else:
+                prompt = self.default_prompt
         
         results = []
         
