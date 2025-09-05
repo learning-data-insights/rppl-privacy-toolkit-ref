@@ -129,12 +129,13 @@ def deidentify():
         
         deidentification_service.set_api_key(api_key)
         
+        prompt_text = data.get('prompt_text')
         for file_info in session['files']:
             # Process each file
             df = pd.DataFrame(file_info['data'])
             
             # Perform deidentification
-            redacted_data = deidentification_service.process_dataframe(df, prompt_index)
+            redacted_data = deidentification_service.process_dataframe(df, prompt_index, prompt_text)
             
             # Calculate metrics if ground truth available
             metrics = None
@@ -293,7 +294,7 @@ def get_prompts():
         for idx, row in prompts_df.iterrows():
             prompts.append({
                 'id': idx + 1,
-                'name': f'Prompt {idx + 1}',
+                'name': 'Default Prompt' if idx == 0 else f'Prompt {idx + 1}',
                 'text': row['prompt']
             })
         
@@ -310,7 +311,7 @@ def get_prompts():
         print(f"Error loading prompts: {str(e)}")
         return jsonify([{
             'id': 1,
-            'name': 'Default',
+            'name': 'Default Prompt',
             'text': 'Please remove any personally identifiable information (PII) and replace with [REDACTED].'
         }])
 
