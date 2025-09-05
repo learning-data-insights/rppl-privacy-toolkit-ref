@@ -5,7 +5,7 @@ import { initializeDiff2HtmlCheckboxes, saveAllFiles, addDiff2HtmlUIFeatures } f
 import ChangesModal from './components/ChangesModal';
 import EditPromptModal from './components/EditPromptModal';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = '/api';
 
 interface FileData {
   name: string;
