@@ -343,5 +343,25 @@ def get_prompts():
             'text': 'Please remove any personally identifiable information (PII) and replace with [REDACTED].'
         }])
 
+# Serve the React frontend
+@application.route('/')
+def serve_frontend():
+    """Serve the main index.html file"""
+    return send_file('frontend/dist/index.html')
+
+@application.route('/<path:path>')
+def serve_static(path):
+    """Serve static files from the frontend dist folder"""
+    # Check if the path is requesting an API endpoint
+    if path.startswith('api/'):
+        return jsonify({'error': 'Not found'}), 404
+    
+    # Try to serve the file from the dist folder
+    try:
+        return send_file(f'frontend/dist/{path}')
+    except:
+        # If file not found, return the index.html (for React Router)
+        return send_file('frontend/dist/index.html')
+
 if __name__ == '__main__':
     application.run(debug=True, port=5000)
