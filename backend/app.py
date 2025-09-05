@@ -57,11 +57,26 @@ def health_check():
 def upload_files():
     """Upload CSV files for processing"""
     try:
+
         # Clean up previous results when new files are uploaded
         results_folder = app.config['RESULTS_FOLDER']
         if os.path.exists(results_folder):
             for filename in os.listdir(results_folder):
                 file_path = os.path.join(results_folder, filename)
+                try:
+                    if os.path.isfile(file_path):
+                        os.unlink(file_path)
+                    elif os.path.isdir(file_path):
+                        import shutil
+                        shutil.rmtree(file_path)
+                except Exception as e:
+                    print(f"Error deleting {file_path}: {e}")
+
+        # Also clean up temp_uploads folder
+        uploads_folder = app.config['UPLOAD_FOLDER']
+        if os.path.exists(uploads_folder):
+            for filename in os.listdir(uploads_folder):
+                file_path = os.path.join(uploads_folder, filename)
                 try:
                     if os.path.isfile(file_path):
                         os.unlink(file_path)
