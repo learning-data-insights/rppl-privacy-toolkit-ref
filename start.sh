@@ -5,8 +5,7 @@ echo ""
 
 # Start backend server in background
 echo "Starting Backend Server..."
-cd backend
-python app.py &
+python application.py &
 BACKEND_PID=$!
 
 # Wait for backend to start

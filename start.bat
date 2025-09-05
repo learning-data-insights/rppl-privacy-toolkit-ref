@@ -3,8 +3,7 @@ echo Starting RPPL Privacy Toolkit...
 echo.
 
 echo Starting Backend Server...
-cd backend
-start cmd /k "conda activate ldi && python app.py"
+start cmd /k "conda activate ldi && python application.py"
 
 echo Waiting for backend to start...
 timeout /t 3 /nobreak > nul
