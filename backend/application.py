@@ -15,21 +15,21 @@ from services.evaluation_service import EvaluationService
 from utils.file_handler import FileHandler
 from utils.diff_generator import DiffGenerator
 
-app = Flask(__name__)
-CORS(app, origins=['http://localhost:3000', 'http://localhost:5173'])
+application = Flask(__name__)
+CORS(application, origins=['http://localhost:3000', 'http://localhost:5173'])
 
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
-app.config['UPLOAD_FOLDER'] = 'temp_uploads'
-app.config['RESULTS_FOLDER'] = 'results'
+application.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+application.config['UPLOAD_FOLDER'] = 'temp_uploads'
+application.config['RESULTS_FOLDER'] = 'results'
 
 # Create necessary directories
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-os.makedirs(app.config['RESULTS_FOLDER'], exist_ok=True)
+os.makedirs(application.config['UPLOAD_FOLDER'], exist_ok=True)
+os.makedirs(application.config['RESULTS_FOLDER'], exist_ok=True)
 
 # Initialize services
 deidentification_service = DeidentificationService()
 evaluation_service = EvaluationService()
-file_handler = FileHandler(app.config['UPLOAD_FOLDER'], app.config['RESULTS_FOLDER'])
+file_handler = FileHandler(application.config['UPLOAD_FOLDER'], application.config['RESULTS_FOLDER'])
 
 # Store session data (in production, use Redis or database)
 sessions = {}
@@ -49,17 +49,15 @@ def convert_to_json_serializable(obj):
     else:
         return obj
 
-@app.route('/api/health', methods=['GET'])
+@application.route('/api/health', methods=['GET'])
 def health_check():
     return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()})
 
-@app.route('/api/upload', methods=['POST'])
+@application.route('/api/upload', methods=['POST'])
 def upload_files():
     """Upload CSV files for processing"""
     try:
-
-        # Clean up previous results when new files are uploaded
-        results_folder = app.config['RESULTS_FOLDER']
+        results_folder = application.config['RESULTS_FOLDER']
         if os.path.exists(results_folder):
             for filename in os.listdir(results_folder):
                 file_path = os.path.join(results_folder, filename)
@@ -73,7 +71,7 @@ def upload_files():
                     print(f"Error deleting {file_path}: {e}")
 
         # Also clean up temp_uploads folder
-        uploads_folder = app.config['UPLOAD_FOLDER']
+        uploads_folder = application.config['UPLOAD_FOLDER']
         if os.path.exists(uploads_folder):
             for filename in os.listdir(uploads_folder):
                 file_path = os.path.join(uploads_folder, filename)
@@ -138,7 +136,7 @@ def upload_files():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/deidentify', methods=['POST'])
+@application.route('/api/deidentify', methods=['POST'])
 def deidentify():
     """Process files for deidentification"""
     try:
@@ -215,7 +213,7 @@ def deidentify():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/update-redactions', methods=['POST'])
+@application.route('/api/update-redactions', methods=['POST'])
 def update_redactions():
     """Update redaction states for manual review"""
     try:
@@ -253,7 +251,7 @@ def update_redactions():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/diff/<filename>', methods=['GET'])
+@application.route('/api/diff/<filename>', methods=['GET'])
 def get_diff(filename):
     """Serve diff files as plain text"""
     try:
@@ -274,7 +272,7 @@ def get_diff(filename):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/download/<session_id>', methods=['GET'])
+@application.route('/api/download/<session_id>', methods=['GET'])
 def download_results(session_id):
     """Download processed files as a zip"""
     try:
@@ -312,7 +310,7 @@ def download_results(session_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/prompts', methods=['GET'])
+@application.route('/api/prompts', methods=['GET'])
 def get_prompts():
     """Get available prompts from the CSV file"""
     try:
@@ -345,4 +343,4 @@ def get_prompts():
         }])
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    application.run(debug=True, port=5000)
