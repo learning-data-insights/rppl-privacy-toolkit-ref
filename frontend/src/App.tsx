@@ -3,6 +3,7 @@ import { ChevronRight, Upload, FileText, Check, Save } from 'lucide-react';
 import axios from 'axios';
 import { initializeDiff2HtmlCheckboxes, saveAllFiles, addDiff2HtmlUIFeatures } from './utils/diff2htmlCheckbox';
 import ChangesModal from './components/ChangesModal';
+import EditPromptModal from './components/EditPromptModal';
 
 const API_BASE_URL = 'http://localhost:5000/api';
 
@@ -54,9 +55,38 @@ function App() {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState('');
+  const [mismatchError, setMismatchError] = useState<string>('');
+  const [isDraggingMain, setIsDraggingMain] = useState(false);
+  const [isDraggingGT, setIsDraggingGT] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalContent, setModalContent] = useState('');
   const [modalFileName, setModalFileName] = useState('');
+  const [editPromptOpen, setEditPromptOpen] = useState(false);
+  const [editingPrompt, setEditingPrompt] = useState<Prompt | null>(null);
+  // Persist checkbox states per filename while the session is active
+  const [checkboxStates, setCheckboxStates] = useState<{ [fileName: string]: string[] }>({});
+
+  const handleSavePrompt = async (updated: Prompt) => {
+    // Create a new session-only Custom Prompt and select it
+    const customPrompt: Prompt = {
+      id: Date.now(),
+      name: 'Custom Prompt',
+      text: updated.text
+    };
+    setAvailablePrompts(prev => [customPrompt, ...prev]);
+    setSelectedPromptId(customPrompt.id);
+    setEditPromptOpen(false);
+    setEditingPrompt(null);
+    alert('Custom prompt created for this session only and selected. It will be passed to processing but will not overwrite Prompts.csv.');
+  };
+
+  const removeFile = (filename: string, isGroundTruth = false) => {
+    if (isGroundTruth) {
+      setGroundTruthFiles(prev => prev.filter(f => f.name !== filename));
+    } else {
+      setUploadedFiles(prev => prev.filter(f => f.name !== filename));
+    }
+  };
 
   // Load available prompts on mount
   useEffect(() => {
@@ -66,7 +96,13 @@ function App() {
   const loadPrompts = async () => {
     try {
       const response = await axios.get(`${API_BASE_URL}/prompts`);
-      setAvailablePrompts(response.data);
+      // Use backend-provided prompts. If none returned, fall back to a sensible default.
+      const promptsArray = (response.data && response.data.length > 0)
+        ? response.data
+        : [{ id: 1, name: 'Default Prompt', text: 'Please remove any personally identifiable information (PII) and replace with [REDACTED].' }];
+      setAvailablePrompts(promptsArray);
+      // Ensure a prompt is selected (first one by default)
+      if (promptsArray.length > 0) setSelectedPromptId(promptsArray[0].id);
     } catch (error) {
       console.error('Failed to load prompts:', error);
     }
@@ -82,12 +118,114 @@ function App() {
       file: file
     }));
 
+    // Append new files to existing list; replace entry if same filename
     if (isGroundTruth) {
-      setGroundTruthFiles(fileArray);
+      setGroundTruthFiles(prev => {
+        const map = new Map(prev.map(f => [f.name, f]));
+        fileArray.forEach(f => map.set(f.name, f));
+        return Array.from(map.values());
+      });
     } else {
-      setUploadedFiles(fileArray);
+      setUploadedFiles(prev => {
+        const map = new Map(prev.map(f => [f.name, f]));
+        fileArray.forEach(f => map.set(f.name, f));
+        return Array.from(map.values());
+      });
     }
   };
+
+  // Handle file drops onto the UI
+  const handleDrop = (event: React.DragEvent, isGroundTruth = false) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const dt = event.dataTransfer;
+    if (!dt || !dt.files || dt.files.length === 0) {
+      if (isGroundTruth) setIsDraggingGT(false); else setIsDraggingMain(false);
+      return;
+    }
+
+    const fileArray = Array.from(dt.files).map(file => ({
+      name: file.name,
+      size: file.size,
+      file: file
+    }));
+
+    // Append dropped files to the existing list; replace entries with same filename
+    if (isGroundTruth) {
+      setGroundTruthFiles(prev => {
+        const map = new Map(prev.map(f => [f.name, f]));
+        fileArray.forEach(f => map.set(f.name, f));
+        return Array.from(map.values());
+      });
+      setIsDraggingGT(false);
+    } else {
+      setUploadedFiles(prev => {
+        const map = new Map(prev.map(f => [f.name, f]));
+        fileArray.forEach(f => map.set(f.name, f));
+        return Array.from(map.values());
+      });
+      setIsDraggingMain(false);
+    }
+  };
+
+  const handleDragOver = (event: React.DragEvent, isGroundTruth = false) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (isGroundTruth) setIsDraggingGT(true); else setIsDraggingMain(true);
+  };
+
+  const handleDragLeave = (event: React.DragEvent, isGroundTruth = false) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (isGroundTruth) setIsDraggingGT(false); else setIsDraggingMain(false);
+  };
+
+  // Helper: normalize base filename for comparison (remove extension and common gt suffixes)
+  const normalizeBaseName = (filename: string) => {
+    const lower = filename.toLowerCase();
+    // Remove extension
+    const noExt = lower.replace(/\.[^.]+$/, '');
+    // Remove common ground-truth suffixes like _gt or -gt or _groundtruth
+    return noExt.replace(/(_|-)?(gt|groundtruth)$/i, '').trim();
+  };
+
+  // Validate that uploaded files and ground truth files match by base filename
+  const validateFilenameMatching = (uploads: FileData[], gts: FileData[]) => {
+    if (!gts || gts.length === 0) {
+      setMismatchError('');
+      return true;
+    }
+
+    if (!uploads || uploads.length === 0) {
+      setMismatchError('Please upload the main files before adding ground truth files.');
+      return false;
+    }
+
+    const uploadBases = uploads.map(f => normalizeBaseName(f.name));
+    const gtBases = gts.map(f => normalizeBaseName(f.name));
+
+    // Quick length check
+    if (uploadBases.length !== gtBases.length) {
+      setMismatchError(`Number of ground truth files (${gtBases.length}) does not match uploaded files (${uploadBases.length}).`);
+      return false;
+    }
+
+    // Ensure every uploaded base has a matching ground truth base
+    const missing = uploadBases.filter(b => !gtBases.includes(b));
+    if (missing.length > 0) {
+      setMismatchError(`Filename mismatch: could not find ground truth matches for: ${missing.join(', ')}`);
+      return false;
+    }
+
+    setMismatchError('');
+    return true;
+  };
+
+  // Re-validate whenever file lists or the toggle change
+  useEffect(() => {
+    validateFilenameMatching(uploadedFiles, groundTruthFiles);
+  }, [uploadedFiles, groundTruthFiles, hasGroundTruth]);
 
   const uploadFilesToServer = async () => {
     const formData = new FormData();
@@ -129,15 +267,21 @@ function App() {
       const newSessionId = await uploadFilesToServer();
       
       // Get the selected prompt
-      const selectedPrompt = availablePrompts.find(p => p.id === selectedPromptId);
-      const promptIndex = selectedPrompt ? selectedPrompt.id - 1 : 0;
-      
-      // Process with deidentification
-      const response = await axios.post(`${API_BASE_URL}/deidentify`, {
-        session_id: newSessionId,
-        prompt_index: promptIndex,
-        api_key: apiKey
-      });
+      const selectedPrompt = availablePrompts.find(p => p.id === selectedPromptId) || null;
+
+      // If user selected a session-only Custom Prompt, send prompt_text only and omit prompt_index
+      let payload: any = { session_id: newSessionId, api_key: apiKey };
+      if (selectedPrompt) {
+        if (selectedPrompt.name === 'Custom Prompt') {
+          // Custom session-only prompt: send only prompt_text (backend will use it)
+          payload.prompt_text = selectedPrompt.text;
+        } else {
+          // Stored backend prompt: send index (backend expects zero-based index)
+          payload.prompt_index = Math.max(0, selectedPrompt.id - 1);
+        }
+      }
+
+      const response = await axios.post(`${API_BASE_URL}/deidentify`, payload);
       
       const results = response.data.results;
       console.log('Processing results:', results);
@@ -182,7 +326,7 @@ function App() {
     if (currentDiff && diffContainerRef.current) {
       // Add a small delay to ensure DOM is ready
       setTimeout(() => {
-        renderDiff2Html();
+  renderDiff2Html();
       }, 100);
     }
   }, [currentDiff]);
@@ -225,10 +369,23 @@ function App() {
         setModalOpen(true);
       }
     );
-    
-    // Initialize checkbox functionality from our utility
+
+    // Initialize checkbox functionality from our utility and restore any saved state
     setTimeout(() => {
-      initializeDiff2HtmlCheckboxes(targetElement);
+      // Determine filename to pass to initializer: pick first file wrapper's file name
+      const $ = (window as any).jQuery || (window as any).$;
+      let firstFileName: string | undefined;
+      if ($) {
+        const wrapper = $(targetElement).find('.d2h-file-wrapper').first();
+        if (wrapper && wrapper.length > 0) {
+          firstFileName = wrapper.find('.d2h-file-name').text().trim();
+        }
+      }
+
+      const initial = firstFileName ? checkboxStates[firstFileName] : undefined;
+      initializeDiff2HtmlCheckboxes(targetElement, firstFileName, initial, (fileName, currentTexts) => {
+        setCheckboxStates(prev => ({ ...prev, [fileName]: currentTexts }));
+      });
     }, 200);
   };
 
@@ -341,7 +498,12 @@ function App() {
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       CSV Files to Process
                     </label>
-                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center bg-gray-50">
+                    <div
+                      className={`border-2 border-dashed rounded-lg p-8 text-center bg-gray-50 ${isDraggingMain ? 'border-blue-400 bg-blue-50' : 'border-gray-300'}`}
+                      onDrop={(e) => handleDrop(e, false)}
+                      onDragOver={(e) => handleDragOver(e, false)}
+                      onDragLeave={(e) => handleDragLeave(e, false)}
+                    >
                       <Upload className="w-12 h-12 mx-auto mb-4 text-gray-400" />
                       <input
                         type="file"
@@ -364,8 +526,8 @@ function App() {
                   {uploadedFiles.length > 0 && (
                     <div className="space-y-3">
                       <h3 className="font-semibold">Uploaded Files ({uploadedFiles.length})</h3>
-                      {uploadedFiles.map((file, idx) => (
-                        <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      {uploadedFiles.map((file) => (
+                        <div key={file.name} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                           <div className="flex items-center gap-3">
                             <FileText className="w-8 h-8 text-blue-600" />
                             <div>
@@ -373,6 +535,13 @@ function App() {
                               <div className="text-sm text-gray-500">{(file.size / 1024).toFixed(2)} KB</div>
                             </div>
                           </div>
+                          <button
+                            onClick={() => removeFile(file.name, false)}
+                            className="text-red-500 hover:text-red-700 font-bold px-2 py-1"
+                            aria-label={`Remove ${file.name}`}
+                          >
+                            ✕
+                          </button>
                         </div>
                       ))}
                     </div>
@@ -424,8 +593,13 @@ function App() {
                     <span>Add Ground Truth files for evaluation</span>
                   </label>
                   
-                  {hasGroundTruth && (
-                    <div className="mt-4">
+                      {hasGroundTruth && (
+                    <div
+                      className={`mt-4 ${isDraggingGT ? 'border border-yellow-400 bg-yellow-50 p-4 rounded' : ''}`}
+                      onDrop={(e) => handleDrop(e, true)}
+                      onDragOver={(e) => handleDragOver(e, true)}
+                      onDragLeave={(e) => handleDragLeave(e, true)}
+                    >
                       <input
                         type="file"
                         multiple
@@ -439,10 +613,22 @@ function App() {
                       </label>
                       
                       {groundTruthFiles.length > 0 && (
-                        <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                          <div className="text-sm text-yellow-800">
-                            {groundTruthFiles.length} ground truth file(s) uploaded
+                        <div className="mt-4 space-y-2">
+                          <div className="text-sm text-yellow-800">{groundTruthFiles.length} ground truth file(s) uploaded</div>
+                          <div className="space-y-2">
+                            {groundTruthFiles.map(gt => (
+                              <div key={gt.name} className="flex items-center justify-between p-2 bg-yellow-50 border border-yellow-100 rounded">
+                                <div className="text-sm text-yellow-800">{gt.name}</div>
+                                <button onClick={() => removeFile(gt.name, true)} className="text-red-600 hover:text-red-800 px-2">✕</button>
+                              </div>
+                            ))}
                           </div>
+                        </div>
+                      )}
+                      {/* Show filename mismatch errors if any */}
+                      {mismatchError && (
+                        <div className="mt-3 text-sm text-red-600 bg-red-50 border border-red-100 p-2 rounded">
+                          {mismatchError}
                         </div>
                       )}
                     </div>
@@ -470,6 +656,18 @@ function App() {
                       </label>
                     ))}
                   </div>
+                  <div className="mt-4">
+                    <button
+                      onClick={() => {
+                        const selected = availablePrompts.find(p => p.id === selectedPromptId) || null;
+                        setEditingPrompt(selected);
+                        setEditPromptOpen(true);
+                      }}
+                      className="px-4 py-2 mt-3 bg-yellow-500 text-yellow-900 rounded hover:bg-yellow-400"
+                    >
+                      Edit Selected Prompt
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex justify-center gap-4 mt-8">
@@ -481,7 +679,7 @@ function App() {
                   </button>
                   <button
                     onClick={processFiles}
-                    disabled={processing || !apiKey}
+                    disabled={processing || !apiKey || !!mismatchError}
                     className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50"
                   >
                     {processing ? 'Processing...' : 'Process Files'}
@@ -594,6 +792,13 @@ function App() {
         onClose={() => setModalOpen(false)}
         content={modalContent}
         fileName={modalFileName}
+      />
+
+      <EditPromptModal
+        isOpen={editPromptOpen}
+        prompt={editingPrompt}
+        onClose={() => setEditPromptOpen(false)}
+        onSave={handleSavePrompt}
       />
     </div>
   );
