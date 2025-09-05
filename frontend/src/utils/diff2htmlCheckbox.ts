@@ -13,7 +13,12 @@ interface TextState {
  * Initialize checkboxes for diff2html output
  * NEW APPROACH: Start from [REDACTED] tags and work backwards to find original text
  */
-export function initializeDiff2HtmlCheckboxes(container: HTMLElement): TextState {
+export function initializeDiff2HtmlCheckboxes(
+  container: HTMLElement,
+  fileName?: string,
+  initialCurrentTexts?: string[],
+  onStateChange?: (fileName: string, currentTexts: string[]) => void
+): TextState {
   // Check if jQuery is available
   const $ = (window as any).jQuery || (window as any).$;
   if (!$) {
@@ -175,12 +180,28 @@ export function initializeDiff2HtmlCheckboxes(container: HTMLElement): TextState
       // Step 4: Add checkbox only to the main DEL element
       if (!$bestDel.hasClass('has-checkbox') && !$bestDel.hasClass('merged-into-previous') && !$bestDel.hasClass('merged-into-next')) {
         $bestDel.addClass('has-checkbox');
-        
+
         const checkbox = $('<input type="checkbox" class="insert-checkbox" style="margin-left: 3px;" />');
         $bestDel.after(checkbox);
-        
-        // Checkbox handler
+
+        // Determine initial checked state from initialCurrentTexts if provided
         const currentIndex = index;
+        let initiallyChecked = false;
+        if (initialCurrentTexts && initialCurrentTexts.length > currentIndex) {
+          initiallyChecked = initialCurrentTexts[currentIndex] !== '[REDACTED]';
+        }
+
+        if (initiallyChecked) {
+          checkbox.prop('checked', true);
+          $(insElements[currentIndex]).text(finalText);
+          currentTexts[currentIndex] = finalText;
+        } else {
+          checkbox.prop('checked', false);
+          $(insElements[currentIndex]).text('[REDACTED]');
+          currentTexts[currentIndex] = '[REDACTED]';
+        }
+
+        // Checkbox handler
         checkbox.on('change', function(this: HTMLInputElement) {
           if ($(this).is(':checked')) {
             $(insElements[currentIndex]).text(finalText);
@@ -189,7 +210,17 @@ export function initializeDiff2HtmlCheckboxes(container: HTMLElement): TextState
             $(insElements[currentIndex]).text('[REDACTED]');
             currentTexts[currentIndex] = '[REDACTED]';
           }
+
+          // Notify consumer about state change
+          if (onStateChange && fileName) {
+            onStateChange(fileName, currentTexts.slice());
+          }
         });
+
+        // Emit initial state after creating checkbox
+        if (onStateChange && fileName) {
+          onStateChange(fileName, currentTexts.slice());
+        }
       }
     }
   });
