@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChevronRight, Upload, FileText, Check, Save } from 'lucide-react';
 import axios from 'axios';
+import { initializeDiff2HtmlCheckboxes, saveAllFiles, addDiff2HtmlUIFeatures } from './utils/diff2htmlCheckbox';
+import ChangesModal from './components/ChangesModal';
 
 const API_BASE_URL = 'http://localhost:5000/api';
 
@@ -45,16 +47,16 @@ function App() {
   const [hasGroundTruth, setHasGroundTruth] = useState(false);
   const [selectedPromptId, setSelectedPromptId] = useState(1);
   const [availablePrompts, setAvailablePrompts] = useState<Prompt[]>([]);
-  const [customPrompt, setCustomPrompt] = useState('');
   const [processing, setProcessing] = useState(false);
   const [processedData, setProcessedData] = useState<ProcessedResult[] | null>(null);
-  const [folderName, setFolderName] = useState('redacted_output');
-  const [redactionStates, setRedactionStates] = useState<{[key: string]: any}>({});
   const diffContainerRef = useRef<HTMLDivElement>(null);
   const [currentDiff, setCurrentDiff] = useState<string>('');
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState('');
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalContent, setModalContent] = useState('');
+  const [modalFileName, setModalFileName] = useState('');
 
   // Load available prompts on mount
   useEffect(() => {
@@ -65,9 +67,6 @@ function App() {
     try {
       const response = await axios.get(`${API_BASE_URL}/prompts`);
       setAvailablePrompts(response.data);
-      if (response.data.length > 0) {
-        setCustomPrompt(response.data[0].text);
-      }
     } catch (error) {
       console.error('Failed to load prompts:', error);
     }
@@ -143,15 +142,7 @@ function App() {
       const results = response.data.results;
       console.log('Processing results:', results);
       
-      // Initialize redaction states for tracking checkbox states
-      const initialStates: {[key: string]: any} = {};
-      results.forEach((result: ProcessedResult) => {
-        initialStates[result.fileName] = {};
-        console.log(`File ${result.fileName} has diff_file:`, !!result.diff_file);
-      });
-      
       setProcessedData(results);
-      setRedactionStates(initialStates);
       setProcessing(false);
       setCurrentStep(3);
       
@@ -176,6 +167,9 @@ function App() {
       if (!window.Diff2Html) {
         console.error('Diff2Html not loaded! Check if script is included correctly.');
       }
+      if (!window.jQuery) {
+        console.error('jQuery not loaded! Check if script is included correctly.');
+      }
     };
     
     // Check immediately and after a delay
@@ -183,7 +177,7 @@ function App() {
     setTimeout(checkLibraries, 1000);
   }, []);
 
-  // Initialize diff2html when component updates
+  // Initialize diff2html when diff content changes
   useEffect(() => {
     if (currentDiff && diffContainerRef.current) {
       // Add a small delay to ensure DOM is ready
@@ -193,15 +187,12 @@ function App() {
     }
   }, [currentDiff]);
 
-  // Render diff using diff2html
+  // Render diff using diff2html (simplified version from example)
   const renderDiff2Html = () => {
     if (!diffContainerRef.current || !currentDiff) {
       console.log('Missing refs or diff:', { hasRef: !!diffContainerRef.current, hasDiff: !!currentDiff });
       return;
     }
-    
-    console.log('Current diff string:', currentDiff);
-    console.log('Diff2Html available:', !!window.Diff2Html);
     
     const targetElement = diffContainerRef.current;
     
@@ -219,129 +210,46 @@ function App() {
     const diffHtml = window.Diff2Html.html(currentDiff, {
       drawFileList: true,
       outputFormat: 'side-by-side',
-      matching: 'words'
+      matching: 'lines'
     });
     
-    console.log('Generated HTML length:', diffHtml.length);
     targetElement.innerHTML = diffHtml;
     
-    // Initialize UI features
-    const diff2htmlUi = new window.Diff2HtmlUI(targetElement);
-    diff2htmlUi.fileListToggle(false);
-    diff2htmlUi.fileContentToggle();
-    diff2htmlUi.synchronisedScroll();
+    // Add UI features with Display Full Text button
+    addDiff2HtmlUIFeatures(
+      targetElement, 
+      // Display Full Text callback
+      (fileName: string, content: string) => {
+        setModalFileName(fileName);
+        setModalContent(content);
+        setModalOpen(true);
+      }
+    );
     
-    // Add checkbox functionality
-    initializeCheckboxes();
-  };
-  
-  // Initialize checkbox functionality (ported from example)
-  const initializeCheckboxes = () => {
-    const $ = window.jQuery;
-    if (!$) return;
-    
-    // Arrays to track text states
-    const insTexts: any[] = [];
-    const delTexts: any[] = [];
-    const currentTexts: any[] = [];
-    
-    // DEBUG: Let's see exactly what HTML diff2html generated
-    console.log('=== DEBUGGING DIFF2HTML OUTPUT ===');
-    
-    // Process inserted text (redacted)
-    $('span.d2h-code-line-ctn ins').each(function(this: any, index: number) {
-      const insText = $(this).text();
-      console.log(`INS[${index}]: "${insText}"`);
-      insTexts.push($(this));
-      currentTexts.push('[REDACTED]');
-    });
-    
-    // Simple approach: create checkbox for each DEL, let misalignment happen naturally
-    $('span.d2h-code-line-ctn del').each(function(this: any, index: number) {
-      const delText = $(this).text();
-      console.log(`Creating checkbox for DEL[${index}]: "${delText}"`);
-      
-      // Always create a checkbox
-      const checkbox = $('<input type="checkbox" class="insert-checkbox" />');
-      $(this).after(checkbox);
-      delTexts.push(delText);
-      
-      // Handle checkbox change - only if there's a corresponding INS
-      checkbox.change(function(this: any) {
-        if (index < insTexts.length) {
-          if ($(this).is(':checked')) {
-            currentTexts[index] = delText;
-            $(insTexts[index]).text(delText);
-            console.log(`Checkbox ${index} checked: Set INS[${index}] to "${delText}"`);
-          } else {
-            currentTexts[index] = '[REDACTED]';
-            $(insTexts[index]).text('[REDACTED]');
-            console.log(`Checkbox ${index} unchecked: Set INS[${index}] to "[REDACTED]"`);
-          }
-        } else {
-          console.log(`Checkbox ${index} has no corresponding INS element`);
-        }
-        updateRedactionState(currentTexts);
-      });
-    });
-    
-    console.log(`=== SUMMARY ===`);
-    console.log(`Found ${insTexts.length} ins elements and ${delTexts.length} del elements`);
-    console.log(`Alignment issue: ${delTexts.length > insTexts.length ? 'YES' : 'NO'}`);
-    console.log('================');
-  };
-  
-  // Update redaction state for saving
-  const updateRedactionState = (currentTexts: string[]) => {
-    if (selectedFile) {
-      setRedactionStates(prev => ({
-        ...prev,
-        [selectedFile]: currentTexts
-      }));
-    }
-  };
-
-  // Extract final text from diff2html DOM
-  const extractFinalText = () => {
-    const $ = window.jQuery;
-    if (!$) return {};
-    
-    const allFiles: {[key: string]: string} = {};
-    
-    $('.d2h-file-wrapper').each(function(this: any) {
-      const fileName = $(this).find('.d2h-file-name').text().trim();
-      let fileContent = '';
-      
-      $(this).find('.d2h-ins').find('span.d2h-code-line-ctn').each(function(this: any) {
-        const lineElement = $(this).clone();
-        lineElement.find('input.insert-checkbox').remove();
-        
-        // Get the current text (either original or redacted based on checkbox state)
-        const lineText = lineElement.text().trim();
-        fileContent += lineText + '\n';
-      });
-      
-      allFiles[fileName] = fileContent;
-    });
-    
-    return allFiles;
+    // Initialize checkbox functionality from our utility
+    setTimeout(() => {
+      initializeDiff2HtmlCheckboxes(targetElement);
+    }, 200);
   };
 
   const saveAll = async () => {
-    if (!sessionId || !processedData) return;
+    if (!sessionId || !processedData || !diffContainerRef.current) return;
     
     try {
-      // Extract final text from diff2html DOM
-      const finalTexts = extractFinalText();
+      // Extract all files using the utility function from example
+      const allFiles = saveAllFiles(diffContainerRef.current, 'redacted_output');
       
-      // Update redactions on server
-      const updates = Object.entries(finalTexts).map(([fileName, finalText]) => {
-        return {
-          fileName,
-          itemId: 0, // Adjust based on your needs
-          finalText
-        };
-      });
+      if (allFiles.length === 0) {
+        alert('No files to save. Please make sure the diff view is loaded.');
+        return;
+      }
+      
+      // Convert to the format expected by the backend
+      const updates = allFiles.map(file => ({
+        fileName: file.name.replace('new/', '').replace('original/', ''), // Clean up file paths
+        itemId: 0,
+        finalText: file.content
+      }));
       
       await axios.post(`${API_BASE_URL}/update-redactions`, {
         session_id: sessionId,
@@ -351,7 +259,7 @@ function App() {
       // Download the results
       window.open(`${API_BASE_URL}/download/${sessionId}`, '_blank');
       
-      alert(`Files saved and ready for download!`);
+      alert(`${allFiles.length} file(s) saved and ready for download!`);
     } catch (error) {
       console.error('Save failed:', error);
       alert('Failed to save files.');
@@ -628,17 +536,8 @@ function App() {
 
                 {/* Redaction Interface */}
                 <div className="bg-gray-50 rounded-lg p-6">
-                  <div className="flex justify-between items-center mb-6">
+                  <div className="mb-6">
                     <h3 className="text-lg font-semibold">Redaction Review</h3>
-                    <div className="flex items-center gap-3">
-                      <label>Folder name:</label>
-                      <input
-                        type="text"
-                        value={folderName}
-                        onChange={(e) => setFolderName(e.target.value)}
-                        className="px-3 py-2 border rounded-lg"
-                      />
-                    </div>
                   </div>
 
                   {/* File Tabs */}
@@ -688,6 +587,14 @@ function App() {
           </div>
         </div>
       </div>
+      
+      {/* Changes Modal */}
+      <ChangesModal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        content={modalContent}
+        fileName={modalFileName}
+      />
     </div>
   );
 }

@@ -1,0 +1,211 @@
+/* Custom styles for diff2html checkbox functionality */
+/* Adapted from the example implementation */
+
+/* Reset Tailwind interference for diff2html */
+.diff-container * {
+  box-sizing: border-box;
+}
+
+.diff-container table {
+  border-spacing: 0;
+  border-collapse: collapse;
+}
+
+.insert-checkbox {
+  margin-left: 3px;
+}
+
+/* Fix line number overflow and table layout issues */
+.d2h-wrapper {
+  overflow-x: auto;
+  width: 100%;
+  font-size: 13px;
+}
+
+.d2h-file-wrapper {
+  overflow: visible;
+}
+
+.d2h-diff-table {
+  table-layout: fixed;
+  width: 100%;
+  border-collapse: separate;
+}
+
+/* Fix line number column width */
+.d2h-code-linenumber {
+  min-width: 40px;
+  max-width: 50px;
+  width: 50px;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Fix code line container */
+.d2h-code-line {
+  width: calc(100% - 50px);
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+.d2h-code-line-ctn {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* Modal overlay for changes */
+.modal {
+  display: none; 
+  position: fixed; 
+  z-index: 1000; 
+  left: 0;
+  top: 0;
+  width: 100%; 
+  height: 100%; 
+  overflow: auto; 
+  background-color: rgba(0,0,0,0.4); 
+}
+
+/* Modal content */
+.modal-content {
+  background-color: #fefefe;
+  margin: 15% auto; 
+  padding: 20px;
+  border: 1px solid #888;
+  width: 80%; 
+  max-height: 80%;
+  overflow-y: auto;
+  word-wrap: break-word;
+  white-space: normal;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* Close button */
+.close {
+  color: #aaa;
+  position: absolute;
+  top: 10px;
+  right: 20px;
+  font-size: 28px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.close:hover,
+.close:focus {
+  color: black;
+  text-decoration: none;
+}
+
+/* Button group styling */
+.button-group {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.submit-btn {
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+/* File select dropdown */
+.file-select {
+  margin-top: 10px;
+}
+
+/* Ensure checkboxes are visible and properly positioned */
+.d2h-code-line-ctn del {
+  background-color: #ffecec;
+  text-decoration: line-through;
+  color: #c82829;
+}
+
+.d2h-code-line-ctn ins {
+  background-color: #eaffea;
+  text-decoration: none;
+  color: #55a532;
+}
+
+/* Additional fixes for line number display */
+.d2h-code-linenumber {
+  padding-left: 2px !important;
+  padding-right: 2px !important;
+  text-align: right !important;
+  white-space: nowrap !important;
+}
+
+/* Ensure code line has proper padding */
+.d2h-code-line-prefix {
+  padding: 0 10px !important;
+}
+
+.d2h-code-line-ctn {
+  padding-left: 10px !important;
+}
+
+/* Fix for side-by-side view */
+.d2h-file-side-diff {
+  overflow-x: auto;
+}
+
+/* Ensure the diff container has proper styling */
+.diff-container {
+  background: white;
+  border-radius: 8px;
+  padding: 16px;
+  overflow: auto;
+  max-height: 600px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Side-by-side specific fixes */
+.d2h-file-side-diff {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+}
+
+.d2h-code-side-line {
+  display: table-cell;
+  width: 50%;
+  vertical-align: top;
+}
+
+/* Fix for side-by-side line numbers */
+.d2h-code-side-linenumber {
+  width: 40px !important;
+  min-width: 40px !important;
+  max-width: 40px !important;
+  padding: 0 5px;
+  box-sizing: border-box;
+}
+
+/* Ensure proper width for code content in side-by-side */
+td.d2h-code-side-linenumber + td {
+  width: calc(50% - 40px);
+}
+
+/* Override any conflicting Tailwind styles */
+.d2h-wrapper table {
+  table-layout: fixed !important;
+}
+
+.d2h-wrapper td {
+  padding: 0 !important;
+  vertical-align: top !important;
+}
+
+/* Fix specific overflow issues with line numbers */
+.d2h-diff-tbody tr td:first-child,
+.d2h-diff-tbody tr td:nth-child(3) {
+  width: 40px !important;
+  min-width: 40px !important;
+  max-width: 40px !important;
+}
