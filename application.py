@@ -16,7 +16,7 @@ from backend.utils.file_handler import FileHandler
 from backend.utils.diff_generator import DiffGenerator
 
 application = Flask(__name__)
-CORS(application, origins=['http://localhost:3000', 'http://localhost:5173'])
+CORS(application)
 
 application.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 application.config['UPLOAD_FOLDER'] = 'backend/temp_uploads'
