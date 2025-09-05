@@ -447,12 +447,18 @@ function App() {
   }, [selectedFile, processedData]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-purple-700">
+    <div className="min-h-screen" style={{ background: 'linear-gradient(74deg, #7B004A 16.11%, #CC5803 96.83%)' }}>
       <div className="container mx-auto px-4 py-8">
         {/* Header */}
         <div className="text-center text-white mb-8">
-          <h1 className="text-4xl font-bold mb-2">RPPL Privacy Toolkit</h1>
+          <div className="flex items-center justify-center gap-4 mb-4">
+            <a href="https://rpplpartnership.org/" target="_blank" rel="noopener noreferrer">
+              <img src="/rppl-logo.svg" alt="RPPL Logo" className="h-16 w-auto hover:opacity-80 transition-opacity" />
+            </a>
+            <h1 className="text-4xl font-bold">Privacy Toolkit</h1>
+          </div>
           <p className="text-lg opacity-95">Integrated de-identification and redaction review system</p>
+          <p className="text-sm opacity-95">This web application is a contribution from <a href="https://ld-insights.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-200 transition-colors">Learning Data Insights</a></p>
         </div>
 
         {/* Main Container */}
