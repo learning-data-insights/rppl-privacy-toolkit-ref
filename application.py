@@ -10,17 +10,17 @@ from datetime import datetime
 import tempfile
 import zipfile
 
-from services.deidentification_service import DeidentificationService
-from services.evaluation_service import EvaluationService
-from utils.file_handler import FileHandler
-from utils.diff_generator import DiffGenerator
+from backend.services.deidentification_service import DeidentificationService
+from backend.services.evaluation_service import EvaluationService
+from backend.utils.file_handler import FileHandler
+from backend.utils.diff_generator import DiffGenerator
 
 application = Flask(__name__)
 CORS(application, origins=['http://localhost:3000', 'http://localhost:5173'])
 
 application.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
-application.config['UPLOAD_FOLDER'] = 'temp_uploads'
-application.config['RESULTS_FOLDER'] = 'results'
+application.config['UPLOAD_FOLDER'] = 'backend/temp_uploads'
+application.config['RESULTS_FOLDER'] = 'backend/results'
 
 # Create necessary directories
 os.makedirs(application.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -57,6 +57,7 @@ def health_check():
 def upload_files():
     """Upload CSV files for processing"""
     try:
+        # Clean up previous results when new files are uploaded
         results_folder = application.config['RESULTS_FOLDER']
         if os.path.exists(results_folder):
             for filename in os.listdir(results_folder):
@@ -102,7 +103,7 @@ def upload_files():
         for file in files:
             if file and file.filename.endswith('.csv'):
                 filename = secure_filename(file.filename)
-                filepath = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
+                filepath = os.path.join(application.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
                 file.save(filepath)
                 
                 # Read CSV and convert to JSON
@@ -117,7 +118,7 @@ def upload_files():
         for file in ground_truth_files:
             if file and file.filename.endswith('.csv'):
                 filename = secure_filename(file.filename)
-                filepath = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_gt_{filename}")
+                filepath = os.path.join(application.config['UPLOAD_FOLDER'], f"{session_id}_gt_{filename}")
                 file.save(filepath)
                 
                 df = pd.read_csv(filepath)
@@ -187,7 +188,7 @@ def deidentify():
             
             # Save diff to a file for this session
             diff_filename = f"{session_id}_{file_info['name']}.diff"
-            diff_path = os.path.join(app.config['RESULTS_FOLDER'], diff_filename)
+            diff_path = os.path.join(application.config['RESULTS_FOLDER'], diff_filename)
             with open(diff_path, 'w', encoding='utf-8') as f:
                 f.write(diff_string)
             
@@ -257,7 +258,7 @@ def get_diff(filename):
     try:
         # Sanitize filename to prevent directory traversal
         safe_filename = secure_filename(filename)
-        diff_path = os.path.join(app.config['RESULTS_FOLDER'], safe_filename)
+        diff_path = os.path.join(application.config['RESULTS_FOLDER'], safe_filename)
         
         if not os.path.exists(diff_path):
             return jsonify({'error': 'Diff file not found'}), 404
