@@ -8,7 +8,7 @@ interface ChangesModalProps {
   fileName?: string;
 }
 
-const ChangesModal: React.FC<ChangesModalProps> = ({ isOpen, onClose, content, fileName }) => {
+const ChangesModal: React.FC<ChangesModalProps> = ({ isOpen, onClose, content }) => {
   if (!isOpen) return null;
 
   const handleCopyToClipboard = async () => {
