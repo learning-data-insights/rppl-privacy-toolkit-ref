@@ -452,13 +452,15 @@ function App() {
         {/* Header */}
         <div className="text-center text-white mb-8">
           <div className="flex items-center justify-center gap-4 mb-4">
-            <a href="https://rpplpartnership.org/" target="_blank" rel="noopener noreferrer">
+            {/* <a href="https://rpplpartnership.org/" target="_blank" rel="noopener noreferrer">
               <img src="/rppl-logo.svg" alt="RPPL Logo" className="h-16 w-auto hover:opacity-80 transition-opacity" />
+            </a> */}
+            <a href="https://rpplpartnership.org/" target="_blank" rel="noopener noreferrer" className="text-white text-4xl font-bold hover:opacity-80 transition-opacity">
+              RPPL
             </a>
             <h1 className="text-4xl font-bold">Privacy Toolkit</h1>
           </div>
           <p className="text-lg opacity-95">Integrated de-identification and redaction review system</p>
-          <p className="text-sm opacity-95">This web application is a contribution from <a href="https://ld-insights.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-200 transition-colors">Learning Data Insights</a></p>
         </div>
 
         {/* Main Container */}
@@ -791,7 +793,10 @@ function App() {
           </div>
         </div>
       </div>
-      
+      <footer className="text-center text-white text-sm py-4 mt-4 opacity-80">
+        <p className="text-sm opacity-95">This web interface is a contribution from <a href="https://ld-insights.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-200 transition-colors">Learning Data Insights</a> based on work from the RPPL team. This is a prototype and has not yet fully reviewed. &copy; {new Date().getFullYear()}  </p>
+      </footer>
+
       {/* Changes Modal */}
       <ChangesModal
         isOpen={modalOpen}
