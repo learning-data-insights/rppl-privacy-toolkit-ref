@@ -224,7 +224,13 @@ function App() {
 
   // Re-validate whenever file lists or the toggle change
   useEffect(() => {
-    validateFilenameMatching(uploadedFiles, groundTruthFiles);
+    // Only validate if ground truth is enabled
+    if (hasGroundTruth) {
+      validateFilenameMatching(uploadedFiles, groundTruthFiles);
+    } else {
+      // Clear any mismatch errors when ground truth is disabled
+      setMismatchError('');
+    }
   }, [uploadedFiles, groundTruthFiles, hasGroundTruth]);
 
   const uploadFilesToServer = async () => {
@@ -684,7 +690,7 @@ function App() {
                   </button>
                   <button
                     onClick={processFiles}
-                    disabled={processing || !apiKey || !!mismatchError}
+                    disabled={processing || !apiKey || (hasGroundTruth && !!mismatchError)}
                     className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50"
                   >
                     {processing ? 'Processing...' : 'Process Files'}
