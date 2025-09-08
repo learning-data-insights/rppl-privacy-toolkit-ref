@@ -9,11 +9,24 @@ import json
 from datetime import datetime
 import tempfile
 import zipfile
+import logging
+import sys
 
 from backend.services.deidentification_service import DeidentificationService
 from backend.services.evaluation_service import EvaluationService
 from backend.utils.file_handler import FileHandler
 from backend.utils.diff_generator import DiffGenerator
+
+# Configure logging for AWS Elastic Beanstalk
+# This ensures logs are captured properly in CloudWatch
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)  # Output to stdout for AWS EB
+    ]
+)
+logger = logging.getLogger(__name__)
 
 application = Flask(__name__)
 CORS(application)
@@ -69,7 +82,7 @@ def upload_files():
                         import shutil
                         shutil.rmtree(file_path)
                 except Exception as e:
-                    print(f"Error deleting {file_path}: {e}")
+                    logger.warning(f"Error deleting {file_path}: {e}")
 
         # Also clean up temp_uploads folder
         uploads_folder = application.config['UPLOAD_FOLDER']
@@ -83,7 +96,7 @@ def upload_files():
                         import shutil
                         shutil.rmtree(file_path)
                 except Exception as e:
-                    print(f"Error deleting {file_path}: {e}")
+                    logger.warning(f"Error deleting {file_path}: {e}")
         
         if 'files' not in request.files:
             return jsonify({'error': 'No files provided'}), 400
@@ -150,6 +163,7 @@ def deidentify():
             return jsonify({'error': 'Invalid session'}), 400
         
         if not api_key:
+            logger.error('API key not provided in request')
             return jsonify({'error': 'API key required'}), 400
         
         session = sessions[session_id]
@@ -208,10 +222,18 @@ def deidentify():
             'results': convert_to_json_serializable(results)
         })
     
+    except ValueError as e:
+        # Handle API key related errors specifically
+        error_msg = str(e)
+        if "API key" in error_msg:
+            logger.error(f"API key error in deidentify endpoint: {error_msg}")
+            logger.error("Please check your API key and ensure it's valid")
+        else:
+            logger.error(f"ValueError in deidentify endpoint: {error_msg}")
+        return jsonify({'error': error_msg}), 400
     except Exception as e:
-        print(f"Error in deidentify endpoint: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Error in deidentify endpoint: {str(e)}")
+        logger.exception("Full traceback:")
         return jsonify({'error': str(e)}), 500
 
 @application.route('/api/update-redactions', methods=['POST'])
@@ -336,7 +358,7 @@ def get_prompts():
         
         return jsonify(prompts)
     except Exception as e:
-        print(f"Error loading prompts: {str(e)}")
+        logger.error(f"Error loading prompts: {str(e)}")
         return jsonify([{
             'id': 1,
             'name': 'Default Prompt',

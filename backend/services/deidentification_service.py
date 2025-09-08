@@ -1,6 +1,9 @@
 import pandas as pd
 from openai import OpenAI
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 class DeidentificationService:
     def __init__(self, api_key=None):
@@ -23,7 +26,7 @@ class DeidentificationService:
         try:
             return pd.read_csv(prompts_path, encoding='utf-8')
         except Exception as e:
-            print(f"Error loading prompts: {str(e)}")
+            logger.error(f"Error loading prompts from CSV: {str(e)}")
             return pd.DataFrame({'prompt': ['']})
     
     def set_api_key(self, api_key):
@@ -34,7 +37,8 @@ class DeidentificationService:
     def api_call(self, post_text, prompt):
         """Direct copy of the original api_call function from de_identified_csv_generator.py"""
         if not self.client:
-            raise ValueError("API key not set")
+            logger.error("API key not set - Please check your API key")
+            raise ValueError("API key not set - Please check your API key")
         
         try:
             message_content = f'{prompt}\n{post_text}'
@@ -48,13 +52,26 @@ class DeidentificationService:
             )
             return response_check.choices[0].message.content.strip()
         except Exception as e:
-            print(f"API call error for post_text: {post_text[:50]}", str(e))
+            error_msg = str(e)
+            logger.error(f"OpenAI API call failed for text: {post_text[:50]}...")
+            
+            # Check for specific API key errors
+            if "401" in error_msg or "Incorrect API key" in error_msg or "authentication" in error_msg.lower():
+                logger.error("Authentication failed - Please check your API key is valid and has proper permissions")
+            elif "429" in error_msg:
+                logger.error("Rate limit exceeded - Please wait before retrying")
+            elif "insufficient_quota" in error_msg or "quota" in error_msg.lower():
+                logger.error("API quota exceeded - Please check your OpenAI account balance")
+            else:
+                logger.error(f"API error details: {error_msg}")
+                
             return "API_ERROR"
     
     def process_dataframe(self, df, prompt_index=0, prompt_text: str = None):
         """Process a dataframe using the logic from de_identified_csv_generator.py"""
         if not self.client:
-            raise ValueError("API key not set")
+            logger.error("API key not set - Please check your API key")
+            raise ValueError("API key not set - Please check your API key")
         
         # Get prompt from loaded prompts or use default
         # If a session-provided prompt_text exists, use that (session-only override)
