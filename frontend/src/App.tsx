@@ -330,10 +330,21 @@ function App() {
   // Initialize diff2html when diff content changes
   useEffect(() => {
     if (currentDiff && diffContainerRef.current) {
-      // Add a small delay to ensure DOM is ready
-      setTimeout(() => {
-  renderDiff2Html();
-      }, 100);
+      // Add a delay to ensure DOM is ready, with retry mechanism
+      const tryRender = (attempts = 0) => {
+        if (attempts > 3) return; // Stop after 3 attempts
+        
+        setTimeout(() => {
+          if (diffContainerRef.current) {
+            renderDiff2Html();
+          } else {
+            // Retry if container still not ready
+            tryRender(attempts + 1);
+          }
+        }, 200 * (attempts + 1)); // Increase delay with each attempt
+      };
+      
+      tryRender();
     }
   }, [currentDiff]);
 
@@ -754,7 +765,13 @@ function App() {
                     {processedData.map((file) => (
                       <button
                         key={file.fileName}
-                        onClick={() => setSelectedFile(file.fileName)}
+                        onClick={() => {
+                          setSelectedFile(file.fileName);
+                          // Force re-render of diff if content exists but wasn't displayed
+                          if (currentDiff && diffContainerRef.current) {
+                            setTimeout(() => renderDiff2Html(), 100);
+                          }
+                        }}
                         className={`px-4 py-2 font-medium transition-colors ${
                           selectedFile === file.fileName
                             ? 'border-b-2 border-blue-600 text-blue-600'
