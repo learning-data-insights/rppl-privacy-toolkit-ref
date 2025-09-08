@@ -455,10 +455,7 @@ function App() {
             {/* <a href="https://rpplpartnership.org/" target="_blank" rel="noopener noreferrer">
               <img src="/rppl-logo.svg" alt="RPPL Logo" className="h-16 w-auto hover:opacity-80 transition-opacity" />
             </a> */}
-            <a href="https://rpplpartnership.org/" target="_blank" rel="noopener noreferrer" className="text-white text-4xl font-bold hover:opacity-80 transition-opacity">
-              RPPL
-            </a>
-            <h1 className="text-4xl font-bold">Privacy Toolkit</h1>
+            <h1 className="text-4xl font-bold">Data Privacy Toolkit</h1>
           </div>
           <p className="text-lg opacity-95">Integrated de-identification and redaction review system</p>
         </div>
@@ -794,7 +791,7 @@ function App() {
         </div>
       </div>
       <footer className="text-center text-white text-sm py-4 mt-4 opacity-80">
-        <p className="text-sm opacity-95">This web interface is a contribution from <a href="https://ld-insights.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-200 transition-colors">Learning Data Insights</a> based on work from the RPPL team. This is a prototype and has not yet fully reviewed. &copy; {new Date().getFullYear()}  </p>
+        <p className="text-sm opacity-95">This interface, designed by <a href="https://ld-insights.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-200 transition-colors"> Learning Data Insights</a>, is based on research and development at the <a href="https://www.upenn.edu/" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-200 transition-colors">University of Pennsylvania</a> and <a href="https://rpplpartnership.org/" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-200 transition-colors"> RPPL</a>. This prototype has not yet been fully reviewed. &copy; {new Date().getFullYear()}  </p>
       </footer>
 
       {/* Changes Modal */}
