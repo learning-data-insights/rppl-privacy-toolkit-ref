@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronRight, Upload, FileText, Check, Save } from 'lucide-react';
+import { ChevronRight, Upload, FileText, Check, Save, Trash2 } from 'lucide-react';
 import axios from 'axios';
 import { initializeDiff2HtmlCheckboxes, saveAllFiles, addDiff2HtmlUIFeatures } from './utils/diff2htmlCheckbox';
 import ChangesModal from './components/ChangesModal';
@@ -408,35 +408,66 @@ function App() {
 
   const saveAll = async () => {
     if (!sessionId || !processedData || !diffContainerRef.current) return;
-    
+
     try {
       // Extract all files using the utility function from example
       const allFiles = saveAllFiles(diffContainerRef.current, 'redacted_output');
-      
+
       if (allFiles.length === 0) {
         alert('No files to save. Please make sure the diff view is loaded.');
         return;
       }
-      
+
       // Convert to the format expected by the backend
       const updates = allFiles.map(file => ({
         fileName: file.name.replace('new/', '').replace('original/', ''), // Clean up file paths
         itemId: 0,
         finalText: file.content
       }));
-      
+
       await axios.post(`${API_BASE_URL}/update-redactions`, {
         session_id: sessionId,
         updates
       });
-      
+
       // Download the results
       window.open(`${API_BASE_URL}/download/${sessionId}`, '_blank');
-      
+
       alert(`${allFiles.length} file(s) saved and ready for download!`);
     } catch (error) {
       console.error('Save failed:', error);
       alert('Failed to save files.');
+    }
+  };
+
+  const deleteSession = async () => {
+    if (!sessionId) return;
+
+    const confirmed = confirm(
+      'Are you sure you want to delete all data for this session? This action cannot be undone.'
+    );
+
+    if (!confirmed) return;
+
+    try {
+      const response = await axios.delete(`${API_BASE_URL}/delete-session/${sessionId}`);
+
+      if (response.data.success) {
+        alert('All session data has been deleted successfully. You will be returned to Step 1 to start a new session.');
+        // Reset to initial state
+        setCurrentStep(1);
+        setUploadedFiles([]);
+        setGroundTruthFiles([]);
+        setProcessedData(null);
+        setSessionId(null);
+        setApiKey('');
+        setSelectedFile(null);
+        setCurrentDiff('');
+        setCheckboxStates({});
+      }
+    } catch (error) {
+      console.error('Delete failed:', error);
+      alert('Failed to delete session data. Please try again.');
     }
   };
 
@@ -805,6 +836,13 @@ function App() {
                     >
                       <Save className="w-4 h-4" />
                       Save & Download
+                    </button>
+                    <button
+                      onClick={deleteSession}
+                      className="px-6 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors flex items-center gap-2"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Finish and Delete Data
                     </button>
                   </div>
                 </div>

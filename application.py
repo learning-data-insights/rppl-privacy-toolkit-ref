@@ -62,6 +62,33 @@ def convert_to_json_serializable(obj):
     else:
         return obj
 
+@application.after_request
+def add_security_headers(response):
+    """Add security headers to all responses"""
+    # Force HTTPS in production (once SSL is configured)
+    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+
+    # Prevent MIME type sniffing
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+
+    # Clickjacking protection
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+
+    # XSS protection for older browsers
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+
+    # Content Security Policy - adjust as needed for your application
+    # Note: 'unsafe-inline' and 'unsafe-eval' are needed for some React and diff2html functionality
+    response.headers['Content-Security-Policy'] = "default-src 'self' https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https:; font-src 'self' data: https:;"
+
+    # Referrer policy for privacy
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+
+    # Permissions policy (formerly Feature Policy)
+    response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
+
+    return response
+
 @application.route('/api/health', methods=['GET'])
 def health_check():
     return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()})
@@ -333,6 +360,62 @@ def download_results(session_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@application.route('/api/delete-session/<session_id>', methods=['DELETE'])
+def delete_session(session_id):
+    """Delete all data associated with a session"""
+    try:
+        if session_id not in sessions:
+            return jsonify({'error': 'Session not found'}), 404
+
+        session = sessions.get(session_id, {})
+        deleted_files = []
+
+        # Delete uploaded files
+        for file_info in session.get('files', []):
+            filepath = file_info.get('path')
+            if filepath and os.path.exists(filepath):
+                try:
+                    os.remove(filepath)
+                    deleted_files.append(filepath)
+                except Exception as e:
+                    logger.warning(f"Failed to delete file {filepath}: {e}")
+
+        # Delete ground truth files
+        for gt_file in session.get('ground_truth', []):
+            filepath = gt_file.get('path')
+            if filepath and os.path.exists(filepath):
+                try:
+                    os.remove(filepath)
+                    deleted_files.append(filepath)
+                except Exception as e:
+                    logger.warning(f"Failed to delete ground truth file {filepath}: {e}")
+
+        # Delete diff files from results folder
+        results_folder = application.config['RESULTS_FOLDER']
+        for filename in os.listdir(results_folder):
+            if filename.startswith(f"{session_id}_"):
+                filepath = os.path.join(results_folder, filename)
+                try:
+                    os.remove(filepath)
+                    deleted_files.append(filepath)
+                except Exception as e:
+                    logger.warning(f"Failed to delete result file {filepath}: {e}")
+
+        # Remove session from memory
+        del sessions[session_id]
+
+        logger.info(f"Deleted session {session_id} and {len(deleted_files)} files")
+
+        return jsonify({
+            'success': True,
+            'message': f'Session {session_id} and all associated data have been deleted',
+            'files_deleted': len(deleted_files)
+        })
+
+    except Exception as e:
+        logger.error(f"Error deleting session {session_id}: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 @application.route('/api/prompts', methods=['GET'])
 def get_prompts():
     """Get available prompts from the CSV file"""
@@ -340,14 +423,14 @@ def get_prompts():
         # Load prompts from the service
         prompts_df = deidentification_service.prompts_df
         prompts = []
-        
+
         for idx, row in prompts_df.iterrows():
             prompts.append({
                 'id': idx + 1,
                 'name': 'Default Prompt' if idx == 0 else f'Prompt {idx + 1}',
                 'text': row['prompt']
             })
-        
+
         # If no prompts loaded, provide a default
         if not prompts:
             prompts = [{
@@ -355,7 +438,7 @@ def get_prompts():
                 'name': 'Default',
                 'text': 'Please remove any personally identifiable information (PII) and replace with [REDACTED].'
             }]
-        
+
         return jsonify(prompts)
     except Exception as e:
         logger.error(f"Error loading prompts: {str(e)}")

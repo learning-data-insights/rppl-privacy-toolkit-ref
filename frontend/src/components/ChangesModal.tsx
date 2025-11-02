@@ -13,8 +13,35 @@ const ChangesModal: React.FC<ChangesModalProps> = ({ isOpen, onClose, content })
 
   const handleCopyToClipboard = async () => {
     try {
-      await navigator.clipboard.writeText(content);
-      alert('Text copied to clipboard!');
+      // Try modern clipboard API first
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(content);
+        alert('Text copied to clipboard!');
+      } else {
+        // Fallback to older execCommand method
+        const textArea = document.createElement('textarea');
+        textArea.value = content;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        
+        try {
+          const successful = document.execCommand('copy');
+          if (successful) {
+            alert('Text copied to clipboard!');
+          } else {
+            alert('Failed to copy text to clipboard');
+          }
+        } catch (err) {
+          console.error('Fallback copy failed: ', err);
+          alert('Failed to copy text to clipboard');
+        } finally {
+          document.body.removeChild(textArea);
+        }
+      }
     } catch (err) {
       console.error('Could not copy text: ', err);
       alert('Failed to copy text to clipboard');
