@@ -62,33 +62,6 @@ def convert_to_json_serializable(obj):
     else:
         return obj
 
-@application.after_request
-def add_security_headers(response):
-    """Add security headers to all responses"""
-    # Force HTTPS in production (once SSL is configured)
-    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
-
-    # Prevent MIME type sniffing
-    response.headers['X-Content-Type-Options'] = 'nosniff'
-
-    # Clickjacking protection
-    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
-
-    # XSS protection for older browsers
-    response.headers['X-XSS-Protection'] = '1; mode=block'
-
-    # Content Security Policy - adjust as needed for your application
-    # Note: 'unsafe-inline' and 'unsafe-eval' are needed for some React and diff2html functionality
-    response.headers['Content-Security-Policy'] = "default-src 'self' https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https:; font-src 'self' data: https:;"
-
-    # Referrer policy for privacy
-    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
-
-    # Permissions policy (formerly Feature Policy)
-    response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
-
-    return response
-
 @application.route('/api/health', methods=['GET'])
 def health_check():
     return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()})
