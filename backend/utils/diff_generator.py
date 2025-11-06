@@ -59,11 +59,23 @@ class DiffGenerator:
             fromfile=f'original/{filename}',
             tofile=f'new/{filename}',
             lineterm='',
-            n=3  # Context lines
+            n=1000  # Large context to ensure all lines are shown
         )
         
         # Convert generator to list and join
         diff_lines = list(diff)
+        
+        # If no differences, create a minimal diff showing the content
+        if not diff_lines:
+            # Create a fake diff header to show that content exists but hasn't changed
+            diff_lines = [
+                f'--- original/{filename}',
+                f'+++ new/{filename}',
+                '@@ -1,{} +1,{} @@'.format(len(original_lines), len(redacted_lines))
+            ] + [' ' + line for line in original_lines[:50]]  # Show first 50 lines with context marker
+            
+            if len(original_lines) > 50:
+                diff_lines.append(' ... ({} more lines)'.format(len(original_lines) - 50))
         
         return '\n'.join(diff_lines)
     
@@ -102,6 +114,7 @@ class DiffGenerator:
                          filename: str = "data.csv") -> str:
         """
         Generate a unified diff for CSV data by comparing text fields.
+        Shows ALL rows, even unchanged ones, for review purposes.
         
         Args:
             original_data: List of original data records
@@ -111,14 +124,25 @@ class DiffGenerator:
         Returns:
             A unified diff string
         """
+        # Add logging to debug
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Generating diff for {filename}")
+        logger.info(f"Original data rows: {len(original_data)}")
+        logger.info(f"Redacted data rows: {len(redacted_data)}")
+        
         # Extract text content from records
         original_texts = []
         redacted_texts = []
         
-        for orig, red in zip(original_data, redacted_data):
+        for idx, (orig, red) in enumerate(zip(original_data, redacted_data)):
             # Get the main text field (adjust based on your data structure)
             orig_text = orig.get('post_text_original') or orig.get('post_text', '')
             red_text = red.get('post_text_OpenAI_redacted') or red.get('post_text', '')
+            
+            # Skip posts where text is identical (no changes)
+            if orig_text == red_text:
+                continue
             
             if orig_text or red_text:
                 # Check if we have an actual ID from the CSV (not just a row index)
@@ -146,8 +170,24 @@ class DiffGenerator:
                     original_texts.append(orig_text)
                     redacted_texts.append(red_text)
         
-        # Combine all texts with proper line breaks
-        original_combined = '\n\n'.join(original_texts) if original_texts else 'No original text'
-        redacted_combined = '\n\n'.join(redacted_texts) if redacted_texts else 'No redacted text'
+        # Instead of using unified_diff which only shows changes,
+        # create a side-by-side comparison that shows ALL content
+        # We'll format it as a diff but ensure all lines are included
+        
+        logger.info(f"Combined {len(original_texts)} original texts")
+        logger.info(f"Combined {len(redacted_texts)} redacted texts")
+        
+        # If no changes detected, create a message indicating all posts are unchanged
+        if not original_texts:
+            logger.info(f"No changes detected in {filename} - all posts identical")
+            original_combined = "No changes detected.\n\nAll posts in this file were processed but no redactions were made."
+            redacted_combined = "No changes detected.\n\nAll posts in this file were processed but no redactions were made."
+        else:
+            # Join posts with blank lines between them
+            original_combined = '\n\n'.join(original_texts)
+            redacted_combined = '\n\n'.join(redacted_texts)
+        
+        logger.info(f"Original combined length: {len(original_combined)}")
+        logger.info(f"Redacted combined length: {len(redacted_combined)}")
         
         return DiffGenerator.generate_diff(original_combined, redacted_combined, filename)

@@ -47,7 +47,21 @@ rppl-privacy-toolkit/
 
 From the root directory (`rppl-privacy-toolkit-ref`):
 
-### 1. Install Python Dependencies
+### 1. Set Up Environment Variables (Recommended)
+
+Create a `.env` file in the root directory with your default OpenAI API key:
+
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit .env and add your API key
+# OPENAI_API_KEY=your-actual-api-key-here
+```
+
+**Note**: The `.env` file is git-ignored for security. Users can optionally override this with their own API key in the web interface.
+
+### 2. Install Python Dependencies
 
 ```bash
 # Create and activate virtual environment

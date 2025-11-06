@@ -57,6 +57,7 @@ function App() {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState('');
+  const [useCustomApiKey, setUseCustomApiKey] = useState(false);
   const [mismatchError, setMismatchError] = useState<string>('');
   const [isDraggingMain, setIsDraggingMain] = useState(false);
   const [isDraggingGT, setIsDraggingGT] = useState(false);
@@ -265,8 +266,9 @@ function App() {
   };
 
   const processFiles = async () => {
-    if (!apiKey) {
-      alert('Please enter your OpenAI API key');
+    // Only check API key if user wants to use their own
+    if (useCustomApiKey && !apiKey) {
+      alert('Please enter your OpenAI API key or uncheck "Use Custom API Key"');
       return;
     }
 
@@ -320,7 +322,13 @@ function App() {
       const selectedPrompt = availablePrompts.find(p => p.id === selectedPromptId) || null;
 
       // If user selected a session-only Custom Prompt, send prompt_text only and omit prompt_index
-      let payload: any = { session_id: newSessionId, api_key: apiKey };
+      let payload: any = { session_id: newSessionId };
+      
+      // Only include API key if user wants to use their own
+      if (useCustomApiKey && apiKey) {
+        payload.api_key = apiKey;
+      }
+      
       if (selectedPrompt) {
         if (selectedPrompt.name === 'Custom Prompt') {
           // Custom session-only prompt: send only prompt_text (backend will use it)
@@ -508,20 +516,20 @@ function App() {
   };
 
   const saveAll = async () => {
-    if (!sessionId || !processedData || !diffContainerRef.current) return;
+    if (!sessionId || !processedData || !diffContainerRef.current || !selectedFile) return;
 
     try {
-      // Extract all files using the utility function from example
-      const allFiles = saveAllFiles(diffContainerRef.current, 'redacted_output');
-
-      if (allFiles.length === 0) {
-        alert('No files to save. Please make sure the diff view is loaded.');
+      // Extract ONLY the currently visible file
+      const currentVisibleFiles = saveAllFiles(diffContainerRef.current);
+      
+      if (currentVisibleFiles.length === 0) {
+        alert('No file is currently visible. Please view a file first.');
         return;
       }
-
-      // Convert to the format expected by the backend
-      const updates = allFiles.map(file => ({
-        fileName: file.name.replace('new/', '').replace('original/', ''), // Clean up file paths
+      
+      // Send the visible file's content to backend
+      const updates = currentVisibleFiles.map(file => ({
+        fileName: file.name.replace('{original → new}/', '').replace('original/', '').replace('new/', ''),
         itemId: 0,
         finalText: file.content
       }));
@@ -531,13 +539,14 @@ function App() {
         updates
       });
 
-      // Download the results
-      window.open(`${API_BASE_URL}/download/${sessionId}`, '_blank');
+      // Download just this one file as CSV
+      const fileName = selectedFile.replace('.csv', '_redacted.csv');
+      window.open(`${API_BASE_URL}/download-single/${sessionId}/${selectedFile}`, '_blank');
 
-      alert(`${allFiles.length} file(s) saved and ready for download!`);
+      alert(`Downloaded: ${fileName}\n\nThis file includes your checkbox edits.`);
     } catch (error) {
       console.error('Save failed:', error);
-      alert('Failed to save files.');
+      alert('Failed to save file.');
     }
   };
 
@@ -562,6 +571,7 @@ function App() {
         setProcessedData(null);
         setSessionId(null);
         setApiKey('');
+        setUseCustomApiKey(false);
         setSelectedFile(null);
         setCurrentDiff('');
         setCheckboxStates({});
@@ -576,14 +586,12 @@ function App() {
   useEffect(() => {
     if (selectedFile && processedData) {
       const fileData = processedData.find(f => f.fileName === selectedFile);
-      console.log('Selected file data:', fileData);
       if (fileData?.diff_file) {
         console.log('Fetching diff file:', fileData.diff_file);
         // Fetch the diff file from the server
         fetch(`${API_BASE_URL}/diff/${fileData.diff_file}`)
           .then(response => response.text())
           .then(diff => {
-            console.log('Fetched diff content:', diff.substring(0, 200) + '...');
             setCurrentDiff(diff);
           })
           .catch(error => {
@@ -758,16 +766,41 @@ function App() {
                 {/* API Key Configuration */}
                 <div className="bg-gray-50 rounded-lg p-6 mb-6">
                   <h3 className="text-lg font-semibold mb-4">OpenAI API Key</h3>
-                  <div className="flex gap-3">
+                  
+                  {/* Toggle for custom API key */}
+                  <label className="flex items-center gap-3 cursor-pointer mb-4">
                     <input
-                      type="password"
-                      value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
-                      placeholder="Enter your OpenAI API key"
-                      className="flex-1 px-4 py-2 border rounded-lg"
+                      type="checkbox"
+                      checked={useCustomApiKey}
+                      onChange={(e) => {
+                        setUseCustomApiKey(e.target.checked);
+                        if (!e.target.checked) {
+                          setApiKey(''); // Clear custom key when unchecking
+                        }
+                      }}
+                      className="w-5 h-5"
                     />
-                  </div>
-                  <p className="text-sm text-gray-600 mt-2">Required for de-identification processing</p>
+                    <span>Use Custom API Key (optional)</span>
+                  </label>
+                  
+                  {useCustomApiKey && (
+                    <>
+                      <div className="flex gap-3">
+                        <input
+                          type="password"
+                          value={apiKey}
+                          onChange={(e) => setApiKey(e.target.value)}
+                          placeholder="Enter your OpenAI API key"
+                          className="flex-1 px-4 py-2 border rounded-lg"
+                        />
+                      </div>
+                      <p className="text-sm text-gray-600 mt-2">Enter your own OpenAI API key for processing</p>
+                    </>
+                  )}
+                  
+                  {!useCustomApiKey && (
+                    <p className="text-sm text-gray-600">Using default API key configured in the environment</p>
+                  )}
                 </div>
 
                 {/* Ground Truth Configuration */}
@@ -783,13 +816,17 @@ function App() {
                     <span>Add Ground Truth files for evaluation</span>
                   </label>
                   
-                      {hasGroundTruth && (
-                    <div
-                      className={`mt-4 ${isDraggingGT ? 'border border-yellow-400 bg-yellow-50 p-4 rounded' : ''}`}
-                      onDrop={(e) => handleDrop(e, true)}
-                      onDragOver={(e) => handleDragOver(e, true)}
-                      onDragLeave={(e) => handleDragLeave(e, true)}
-                    >
+                  {hasGroundTruth && (
+                    <>
+                      <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
+                        <strong>Required Column:</strong> Ground truth files must include a column named <code className="bg-yellow-100 px-2 py-0.5 rounded font-semibold">post_text_human_redacted</code>
+                      </div>
+                      <div
+                        className={`mt-4 ${isDraggingGT ? 'border border-yellow-400 bg-yellow-50 p-4 rounded' : ''}`}
+                        onDrop={(e) => handleDrop(e, true)}
+                        onDragOver={(e) => handleDragOver(e, true)}
+                        onDragLeave={(e) => handleDragLeave(e, true)}
+                      >
                       <input
                         type="file"
                         multiple
@@ -821,7 +858,8 @@ function App() {
                           {mismatchError}
                         </div>
                       )}
-                    </div>
+                      </div>
+                    </>
                   )}
                 </div>
 
@@ -870,7 +908,7 @@ function App() {
                   </button>
                   <button
                     onClick={processFiles}
-                    disabled={processing || !apiKey || (hasGroundTruth && !!mismatchError)}
+                    disabled={processing || (useCustomApiKey && !apiKey) || (hasGroundTruth && !!mismatchError)}
                     className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50"
                   >
                     {processing ? (
@@ -892,7 +930,7 @@ function App() {
                       <div>
                         <p className="text-blue-900 font-medium">{processingStatus}</p>
                         <p className="text-sm text-blue-700 mt-1">
-                          Please wait... Large files may take several minutes to process.
+                        Large files may take several minutes to process.
                         </p>
                       </div>
                     </div>
@@ -905,6 +943,31 @@ function App() {
             {currentStep === 3 && processedData && (
               <div>
                 <h2 className="text-2xl font-bold mb-6">Step 3: Results & Redaction Review</h2>
+                
+                {/* Collapsible Instructions Box */}
+                <details className="bg-blue-50 border border-blue-200 rounded-lg mb-6" open>
+                  <summary className="font-semibold text-blue-900 p-4 cursor-pointer hover:bg-blue-100 rounded-t-lg">
+                    📝 How to Review & Download
+                  </summary>
+                  <div className="px-4 pb-4 text-sm text-blue-800 space-y-2">
+                    <p>
+                      <strong>1. Review Redactions:</strong> Use the tabs below to view each file. The diff view shows original text (left) and redacted text (right) side-by-side. 
+                      <span className="italic"> Only rows with changes are displayed.</span>
+                    </p>
+                    <p>
+                      <strong>2. Customize (Optional):</strong> Check/uncheck boxes next to each redaction to include or exclude it from the final output.
+                    </p>
+                    <p>
+                      <strong>3. Download:</strong> Click <span className="font-semibold">"Save & Download"</span> to get a CSV file with your customizations. The downloaded file will include:
+                    </p>
+                    <ul className="list-disc ml-6 text-blue-800">
+                      <li><code className="bg-blue-100 px-1 rounded">id</code> — Row identifier</li>
+                      <li><code className="bg-blue-100 px-1 rounded">post_text_original</code> — Original text</li>
+                      <li><code className="bg-blue-100 px-1 rounded">post_text_OpenAI_redacted</code> — AI-suggested redactions</li>
+                      <li><code className="bg-blue-100 px-1 rounded">post_text_user_edited</code> — Your final version (with your checkbox selections applied)</li>
+                    </ul>
+                  </div>
+                </details>
                 
                 {/* Metrics Table */}
                 {processedData.some(d => d.metrics) && (

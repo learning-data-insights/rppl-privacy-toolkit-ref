@@ -59,9 +59,7 @@ export function initializeDiff2HtmlCheckboxes(
     // Find words before and after [REDACTED] for context
     const beforeMatch = insLineText.substring(0, insLineText.indexOf('[REDACTED]')).trim().split(/\s+/).pop() || '';
     const afterMatch = insLineText.substring(insLineText.indexOf('[REDACTED]') + '[REDACTED]'.length).trim().split(/\s+/)[0] || '';
-    
-    console.log(`Looking for redaction with context: "${beforeMatch}" [?] "${afterMatch}"`);
-    
+        
     // Find the corresponding DEL elements
     let bestMatch: { element: any, text: string } | null = null;
     let bestScore = 0;
@@ -347,7 +345,7 @@ export function extractFullTextFromFile(fileWrapper: HTMLElement): string {
 /**
  * Save all files - extracts the current state of all files
  */
-export function saveAllFiles(container: HTMLElement, folderName: string): { name: string; content: string }[] {
+export function saveAllFiles(container: HTMLElement): { name: string; content: string }[] {
   const $ = (window as any).jQuery || (window as any).$;
   if (!$) {
     console.error('jQuery is required for saving files');
@@ -361,11 +359,21 @@ export function saveAllFiles(container: HTMLElement, folderName: string): { name
     let fileContent = '';
     
     $(this).find('.d2h-ins').find('span.d2h-code-line-ctn').each(function(this: any) {
-      const lineElement = $(this).clone();
-      lineElement.find('input.insert-checkbox').remove();
+      const $lineElement = $(this);
       
-      // Get current text (which includes any checkbox-based changes)
-      const lineText = lineElement.text().trim();
+      // Remove checkboxes temporarily to get clean text
+      const checkboxes = $lineElement.find('input.insert-checkbox');
+      const checkboxParents = checkboxes.map(function(this: any) { return $(this).parent(); });
+      checkboxes.detach();
+      
+      // Get current text from live element (includes checkbox changes)
+      const lineText = $lineElement.text().trim();
+      
+      // Restore checkboxes
+      checkboxes.each(function(this: any, idx: any) {
+        checkboxParents.eq(idx).append($(this));
+      });
+      
       if (lineText) {
         fileContent += lineText + '\n';
       }
@@ -379,6 +387,5 @@ export function saveAllFiles(container: HTMLElement, folderName: string): { name
     }
   });
   
-  console.log(`Extracted ${allFiles.length} files for folder: ${folderName}`);
   return allFiles;
 }

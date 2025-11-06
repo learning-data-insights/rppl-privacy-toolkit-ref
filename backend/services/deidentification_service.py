@@ -43,7 +43,7 @@ class DeidentificationService:
         try:
             message_content = f'{prompt}\n{post_text}'
             response_check = self.client.chat.completions.create(
-                model="gpt-4",
+                model="gpt-4.1-mini",
                 messages=[
                     {"role": "system", "content": "You are a helpful assistant."},
                     {"role": "user", "content": message_content}
@@ -94,7 +94,7 @@ class DeidentificationService:
             batch_content += "\nReturn the redacted versions in the same order, separated by '---NEXT---'. Do not include the [TEXT N] markers in your response."
             
             response = self.client.chat.completions.create(
-                model="gpt-4",
+                model="gpt-4.1-mini",
                 messages=[
                     {"role": "system", "content": "You are a helpful assistant that redacts sensitive information from text."},
                     {"role": "user", "content": batch_content}

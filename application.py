@@ -11,11 +11,15 @@ import tempfile
 import zipfile
 import logging
 import sys
+from dotenv import load_dotenv
 
 from backend.services.deidentification_service import DeidentificationService
 from backend.services.evaluation_service import EvaluationService
 from backend.utils.file_handler import FileHandler
 from backend.utils.diff_generator import DiffGenerator
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure logging for AWS Elastic Beanstalk
 # This ensures logs are captured properly in CloudWatch
@@ -119,8 +123,19 @@ def upload_files():
                 filepath = os.path.join(application.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
                 file.save(filepath)
                 
-                # Read CSV and convert to JSON
+                # Read CSV and standardize format
                 df = pd.read_csv(filepath)
+                
+                # Add 'id' column if it doesn't exist (sequential numbers starting from 1)
+                if 'id' not in df.columns:
+                    df.insert(0, 'id', range(1, len(df) + 1))
+                
+                # Keep ONLY id and post_text_original columns
+                if 'post_text_original' not in df.columns:
+                    return jsonify({'error': f'File {filename} must have a post_text_original column'}), 400
+                
+                df = df[['id', 'post_text_original']]
+                
                 sessions[session_id]['files'].append({
                     'name': filename,
                     'path': filepath,
@@ -162,9 +177,13 @@ def deidentify():
         if not session_id or session_id not in sessions:
             return jsonify({'error': 'Invalid session'}), 400
         
+        # Use provided API key if present, otherwise fall back to environment variable
         if not api_key:
-            logger.error('API key not provided in request')
-            return jsonify({'error': 'API key required'}), 400
+            api_key = os.getenv('OPENAI_API_KEY')
+            if not api_key:
+                logger.error('No API key provided and OPENAI_API_KEY not set in environment')
+                return jsonify({'error': 'API key required'}), 400
+            logger.info('Using default API key from environment variable')
         
         session = sessions[session_id]
         results = []
@@ -208,11 +227,27 @@ def deidentify():
                     )
             
             # Generate diff for this file
+            # Only pass the columns needed for diff (id and text columns)
+            # This prevents extra columns from breaking the layout
+            original_for_diff = [{
+                'id': item.get('id'),
+                'post_text_original': item.get('post_text_original')
+            } for item in file_info['data']]
+            
+            logger.info(f"Generating diff for {file_info['name']}")
+            logger.info(f"Original data count: {len(original_for_diff)}, Redacted data count: {len(redacted_data)}")
+            
             diff_string = DiffGenerator.generate_csv_diff(
-                file_info['data'], 
+                original_for_diff, 
                 redacted_data,
                 file_info['name']
             )
+            
+            if not diff_string:
+                logger.error(f"Generated diff is empty for {file_info['name']}")
+                diff_string = "# Error: No diff generated"
+            
+            logger.info(f"Diff generated, length: {len(diff_string)}")
             
             # Save diff to a file for this session
             diff_filename = f"{session_id}_{file_info['name']}.diff"
@@ -267,7 +302,7 @@ def get_progress(session_id):
 
 @application.route('/api/update-redactions', methods=['POST'])
 def update_redactions():
-    """Update redaction states for manual review"""
+    """Save user-edited text from diff view"""
     try:
         data = request.json
         session_id = data.get('session_id')
@@ -278,25 +313,17 @@ def update_redactions():
         
         session = sessions[session_id]
         
-        # Apply updates to session results
         if session['results'] and updates:
             for update in updates:
-                file_name = update.get('fileName')
-                item_id = update.get('itemId')
-                # Accept both 'text' and 'finalText' for backwards compatibility
-                new_text = update.get('finalText') or update.get('text')
+                file_name = update.get('fileName', '').replace('{original → new}/', '')
+                final_text = update.get('finalText') or update.get('text')
                 
-                # Find and update the specific item
                 for result in session['results']:
                     if result['fileName'] == file_name:
-                        for item in result['redacted']:
-                            if item.get('id') == item_id:
-                                # Update the redacted text
-                                if 'post_text_OpenAI_redacted' in item:
-                                    item['post_text_OpenAI_redacted'] = new_text
-                                else:
-                                    item['post_text'] = new_text
-                                break
+                        if 'user_edits' not in result:
+                            result['user_edits'] = {}
+                        result['user_edits']['full_text'] = final_text
+                        break
         
         return jsonify({'success': True})
     
@@ -341,12 +368,44 @@ def download_results(session_id):
         
         with zipfile.ZipFile(zip_path, 'w') as zipf:
             for result in session['results']:
-                # Convert result to CSV
-                df = pd.DataFrame(result['redacted'])
+                # Start with original data (id + post_text_original)
+                df = pd.DataFrame(result['original'])
+                
+                # Add OpenAI redacted column
+                redacted_df = pd.DataFrame(result['redacted'])
+                df['post_text_OpenAI_redacted'] = redacted_df['post_text_OpenAI_redacted']
+                
+                # ALWAYS add user_edited column (even if empty)
+                df['post_text_user_edited'] = None
+                
+                # Fill in user edits if available
+                if 'user_edits' in result and 'full_text' in result['user_edits']:
+                    user_text = result['user_edits']['full_text']
+                    user_posts = [line.strip() for line in user_text.split('\n') if line.strip()]
+                    
+                    # Simple content matching: find best match for each user post
+                    for user_post in user_posts:
+                        best_match_idx = None
+                        best_score = 0
+                        
+                        for row_idx, row in df.iterrows():
+                            # Compare with OpenAI redacted text (calculate word overlap)
+                            redacted_text = row['post_text_OpenAI_redacted']
+                            user_words = set(user_post.lower().split())
+                            redacted_words = set(redacted_text.lower().split())
+                            overlap = len(user_words & redacted_words)
+                            
+                            if overlap > best_score:
+                                best_score = overlap
+                                best_match_idx = row_idx
+                        
+                        # Require at least 5 word overlap to avoid false matches
+                        if best_match_idx is not None and best_score > 5:
+                            df.at[best_match_idx, 'post_text_user_edited'] = user_post
+                
+                # Write to zip
                 csv_buffer = io.StringIO()
                 df.to_csv(csv_buffer, index=False)
-                
-                # Add to zip
                 file_name = result['fileName'].replace('.csv', '_redacted.csv')
                 zipf.writestr(file_name, csv_buffer.getvalue())
                 
@@ -358,6 +417,66 @@ def download_results(session_id):
         
         return send_file(zip_path, as_attachment=True, 
                         download_name=f'redacted_files_{session_id}.zip')
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@application.route('/api/download-single/<session_id>/<filename>', methods=['GET'])
+def download_single_file(session_id, filename):
+    """Download a single processed file as CSV"""
+    try:
+        if session_id not in sessions:
+            return jsonify({'error': 'Invalid session'}), 404
+        
+        session = sessions[session_id]
+        if not session['processed'] or not session['results']:
+            return jsonify({'error': 'No results available'}), 400
+        
+        # Find the requested file
+        result = next((r for r in session['results'] if r['fileName'] == filename), None)
+        if not result:
+            return jsonify({'error': 'File not found'}), 404
+        
+        # Build the CSV with all columns
+        df = pd.DataFrame(result['original'])
+        redacted_df = pd.DataFrame(result['redacted'])
+        df['post_text_OpenAI_redacted'] = redacted_df['post_text_OpenAI_redacted']
+        df['post_text_user_edited'] = None
+        
+        # Fill in user edits if available
+        if 'user_edits' in result and 'full_text' in result['user_edits']:
+            user_text = result['user_edits']['full_text']
+            user_posts = [line.strip() for line in user_text.split('\n') if line.strip()]
+            
+            # Match user posts to rows by content
+            for user_post in user_posts:
+                best_match_idx = None
+                best_score = 0
+                
+                for row_idx, row in df.iterrows():
+                    redacted_text = row['post_text_OpenAI_redacted']
+                    user_words = set(user_post.lower().split())
+                    redacted_words = set(redacted_text.lower().split())
+                    overlap = len(user_words & redacted_words)
+                    
+                    if overlap > best_score:
+                        best_score = overlap
+                        best_match_idx = row_idx
+                
+                if best_match_idx is not None and best_score > 5:
+                    df.at[best_match_idx, 'post_text_user_edited'] = user_post
+        
+        # Convert to CSV
+        csv_buffer = io.StringIO()
+        df.to_csv(csv_buffer, index=False)
+        
+        # Create response
+        output = io.BytesIO()
+        output.write(csv_buffer.getvalue().encode('utf-8'))
+        output.seek(0)
+        
+        download_filename = filename.replace('.csv', '_redacted.csv')
+        return send_file(output, mimetype='text/csv', as_attachment=True, download_name=download_filename)
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500

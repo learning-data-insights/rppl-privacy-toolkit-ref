@@ -187,7 +187,7 @@
   box-sizing: border-box;
   /* Override the two problematic properties from diff2html.min.css */
   display: block !important; /* Override display: inline-block */
-  position: relative !important; /* Override position: absolute */
+  position: static !important; /* Override position: absolute */
 }
 
 /* Ensure proper width for code content in side-by-side */
