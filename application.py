@@ -172,12 +172,26 @@ def deidentify():
         deidentification_service.set_api_key(api_key)
         
         prompt_text = data.get('prompt_text')
+        
+        # Initialize progress tracking
+        session['progress'] = {'current': 0, 'total': 0, 'status': 'starting'}
+        
+        def update_progress(current_batch, total_batches):
+            """Callback to update progress in session"""
+            session['progress'] = {
+                'current': current_batch,
+                'total': total_batches,
+                'status': 'processing'
+            }
+        
         for file_info in session['files']:
             # Process each file
             df = pd.DataFrame(file_info['data'])
             
-            # Perform deidentification
-            redacted_data = deidentification_service.process_dataframe(df, prompt_index, prompt_text)
+            # Perform deidentification with progress callback
+            redacted_data = deidentification_service.process_dataframe(
+                df, prompt_index, prompt_text, progress_callback=update_progress
+            )
             
             # Calculate metrics if ground truth available
             metrics = None
@@ -234,6 +248,21 @@ def deidentify():
     except Exception as e:
         logger.error(f"Error in deidentify endpoint: {str(e)}")
         logger.exception("Full traceback:")
+        return jsonify({'error': str(e)}), 500
+
+@application.route('/api/progress/<session_id>', methods=['GET'])
+def get_progress(session_id):
+    """Get processing progress for a session"""
+    try:
+        if session_id not in sessions:
+            return jsonify({'error': 'Invalid session'}), 400
+        
+        session = sessions[session_id]
+        progress = session.get('progress', {'current': 0, 'total': 0, 'status': 'unknown'})
+        
+        return jsonify(progress)
+    except Exception as e:
+        logger.error(f"Error getting progress: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @application.route('/api/update-redactions', methods=['POST'])

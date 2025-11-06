@@ -121,8 +121,30 @@ class DiffGenerator:
             red_text = red.get('post_text_OpenAI_redacted') or red.get('post_text', '')
             
             if orig_text or red_text:
-                original_texts.append(f"Post ID: {orig.get('id', 'unknown')}\n{orig_text}")
-                redacted_texts.append(f"Post ID: {red.get('id', 'unknown')}\n{red_text}")
+                # Check if we have an actual ID from the CSV (not just a row index)
+                orig_id = orig.get('id', None)
+                
+                # Show Post ID only if:
+                # 1. ID exists
+                # 2. ID is a string (actual identifier from CSV)
+                # 3. OR ID is a non-negative integer that looks like a real ID (not a pandas index)
+                show_id = False
+                if orig_id is not None:
+                    if isinstance(orig_id, str):
+                        # String IDs are always real IDs
+                        show_id = True
+                    elif isinstance(orig_id, (int, float)):
+                        # Numeric IDs: show if they're non-negative integers
+                        # This assumes CSV IDs start from 0 or 1
+                        show_id = orig_id >= 0
+                
+                if show_id:
+                    original_texts.append(f"Post ID: {orig_id}\n{orig_text}")
+                    redacted_texts.append(f"Post ID: {orig_id}\n{red_text}")
+                else:
+                    # No ID or it's just a row index - don't show it
+                    original_texts.append(orig_text)
+                    redacted_texts.append(red_text)
         
         # Combine all texts with proper line breaks
         original_combined = '\n\n'.join(original_texts) if original_texts else 'No original text'

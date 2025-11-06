@@ -32,7 +32,6 @@
   border-collapse: separate;
 }
 
-/* Fix line number column width */
 .d2h-code-linenumber {
   min-width: 40px;
   max-width: 50px;
@@ -48,6 +47,7 @@
   overflow-wrap: break-word;
   word-wrap: break-word;
   white-space: pre-wrap;
+  max-width: 600px; /* Prevent extreme stretching */
 }
 
 .d2h-code-line-ctn {
@@ -185,6 +185,9 @@
   max-width: 40px !important;
   padding: 0 5px;
   box-sizing: border-box;
+  /* Override the two problematic properties from diff2html.min.css */
+  display: block !important; /* Override display: inline-block */
+  position: relative !important; /* Override position: absolute */
 }
 
 /* Ensure proper width for code content in side-by-side */

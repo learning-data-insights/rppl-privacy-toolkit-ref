@@ -49,8 +49,10 @@ function App() {
   const [selectedPromptId, setSelectedPromptId] = useState(1);
   const [availablePrompts, setAvailablePrompts] = useState<Prompt[]>([]);
   const [processing, setProcessing] = useState(false);
+  const [processingStatus, setProcessingStatus] = useState<string>('');
   const [processedData, setProcessedData] = useState<ProcessedResult[] | null>(null);
   const diffContainerRef = useRef<HTMLDivElement>(null);
+  const progressIntervalRef = useRef<number | null>(null);
   const [currentDiff, setCurrentDiff] = useState<string>('');
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -247,10 +249,12 @@ function App() {
     }
 
     try {
+      setProcessingStatus('Uploading files...');
       const response = await axios.post(`${API_BASE_URL}/upload`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
-        }
+        },
+        timeout: 120000 // 2 minute timeout for upload
       });
       setSessionId(response.data.session_id);
       return response.data.session_id;
@@ -266,11 +270,51 @@ function App() {
       return;
     }
 
+    // Check total file size and warn if large
+    const totalSize = uploadedFiles.reduce((sum, f) => sum + f.size, 0);
+    const totalSizeMB = totalSize / (1024 * 1024);
+    
+    // Estimate row count (rough estimate: 1 row ≈ 200 bytes average)
+    const estimatedRows = Math.floor(totalSize / 200);
+    
+    if (totalSizeMB > 5 || estimatedRows > 200) {
+      const proceed = confirm(
+        `Warning: Your file appears to contain approximately ${estimatedRows} rows (${totalSizeMB.toFixed(2)} MB).\n\n` +
+        `Processing time (with batch processing - 8 rows per call):\n` +
+        `• 100 rows ≈ 1-2 minutes\n` +
+        `• 200 rows ≈ 3-5 minutes\n` +
+        `• 500 rows ≈ 8-12 minutes\n` +
+        `• 1000+ rows ≈ 15-25 minutes (may timeout)\n\n` +
+        `For files over 500 rows, consider:\n` +
+        `• Splitting into smaller files (recommended: < 300 rows each)\n` +
+        `• Processing in multiple sessions\n\n` +
+        `Do you want to continue?`
+      );
+      if (!proceed) return;
+    }
+
     setProcessing(true);
+    setProcessingStatus('Preparing files...');
     
     try {
       // First upload files
       const newSessionId = await uploadFilesToServer();
+      
+      // Start polling for progress
+      progressIntervalRef.current = window.setInterval(async () => {
+        try {
+          const progressResponse = await axios.get(`${API_BASE_URL}/progress/${newSessionId}`);
+          const progress = progressResponse.data;
+          
+          if (progress.status === 'processing' && progress.total > 0) {
+            setProcessingStatus(
+              `Processing batch ${progress.current} of ${progress.total}... Please wait.`
+            );
+          }
+        } catch (error) {
+          console.error('Error fetching progress:', error);
+        }
+      }, 2000); // Poll every 2 seconds
       
       // Get the selected prompt
       const selectedPrompt = availablePrompts.find(p => p.id === selectedPromptId) || null;
@@ -287,22 +331,79 @@ function App() {
         }
       }
 
-      const response = await axios.post(`${API_BASE_URL}/deidentify`, payload);
+      setProcessingStatus('Processing with AI in batches...');
+      
+      const response = await axios.post(`${API_BASE_URL}/deidentify`, payload, {
+        timeout: 600000, // 10 minute timeout for processing
+        onDownloadProgress: () => {
+          // Keep connection alive indicator
+          setProcessingStatus((prev) => prev + '.');
+        }
+      });
+      
+      // Stop polling
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
       
       const results = response.data.results;
       console.log('Processing results:', results);
       
       setProcessedData(results);
       setProcessing(false);
+      setProcessingStatus('');
       setCurrentStep(3);
       
       if (results.length > 0) {
         setSelectedFile(results[0].fileName);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Processing failed:', error);
+      
+      // Stop polling if still running
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+      
       setProcessing(false);
-      alert('Processing failed. Please check your API key and try again.');
+      setProcessingStatus('');
+      
+      // Provide more helpful error messages
+      if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+        alert(
+          'Processing timeout: Your file is too large to process in one request.\n\n' +
+          'Even with batch processing (8 rows per call), this file exceeds the time limit.\n\n' +
+          'Suggestions:\n' +
+          '• Split your CSV into smaller files (recommend < 200 rows each)\n' +
+          '• Reduce the number of rows per file\n' +
+          '• Process files individually rather than in batch'
+        );
+      } else if (error.response?.status === 504) {
+        alert(
+          'Gateway timeout: The server took too long to respond.\n\n' +
+          'This usually means your file has too many rows. Try:\n' +
+          '• Splitting into files with < 200 rows each\n' +
+          '• Processing fewer rows at a time\n' +
+          '• Ensuring your file has the correct column name (post_text_original)\n\n' +
+          'Note: Batch processing is enabled, but very large files may still timeout.'
+        );
+      } else if (error.response?.status === 400 && error.response?.data?.error?.includes('post_text_original')) {
+        // Column validation error
+        alert(
+          'Invalid CSV format: Missing required column\n\n' +
+          error.response.data.error + '\n\n' +
+          'To fix this:\n' +
+          '1. Open your CSV file in Excel or a spreadsheet program\n' +
+          '2. Rename your text column to: post_text_original\n' +
+          '3. Save the file and try uploading again'
+        );
+      } else if (error.response?.status === 401) {
+        alert('Invalid API key. Please check your OpenAI API key and try again.');
+      } else {
+        alert('Processing failed. Please check your API key and try again.\n\nError: ' + (error.message || 'Unknown error'));
+      }
     }
   };
 
@@ -545,6 +646,34 @@ function App() {
               <div>
                 <h2 className="text-2xl font-bold mb-6">Step 1: Upload CSV Files</h2>
                 
+                {/* Instructions Box */}
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                  <h3 className="font-semibold text-blue-900 mb-2">📋 CSV File Requirements</h3>
+                  <p className="text-sm text-blue-800 mb-3">
+                    Your CSV file <strong>must</strong> have the following columns:
+                  </p>
+                  <div className="bg-white rounded p-3 mb-3">
+                    <div className="text-sm text-blue-900 space-y-2">
+                      <div>
+                        <span className="font-semibold">Required:</span>
+                        <code className="bg-blue-100 px-2 py-0.5 rounded ml-2 font-semibold">post_text_original</code>
+                        <span className="text-gray-600 ml-2">— The text content to redact (other columns will be ignored)</span>
+                      </div>
+                      <div>
+                        <span className="font-semibold">Optional:</span>
+                        <code className="bg-blue-100 px-2 py-0.5 rounded ml-2">id</code>
+                        <span className="text-gray-600 ml-2">— Row identifier (uses row numbers if not provided)</span>
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-sm text-blue-800 mt-3">
+                    💡 <strong>Tip:</strong> If your column has a different name, rename it to <code className="bg-blue-100 px-2 py-0.5 rounded">post_text_original</code> in Excel or your spreadsheet program before uploading.
+                  </p>
+                  <p className="text-sm text-red-700 mt-2 font-medium">
+                    ⚠️ Files without a <code className="bg-red-100 px-2 py-0.5 rounded">post_text_original</code> column will be rejected.
+                  </p>
+                </div>
+                
                 <div className="space-y-6">
                   {/* Main Files Upload */}
                   <div>
@@ -578,7 +707,15 @@ function App() {
 
                   {uploadedFiles.length > 0 && (
                     <div className="space-y-3">
-                      <h3 className="font-semibold">Uploaded Files ({uploadedFiles.length})</h3>
+                      <div className="flex items-center justify-between">
+                        <h3 className="font-semibold">Uploaded Files ({uploadedFiles.length})</h3>
+                        <div className="text-sm text-gray-600">
+                          Total: {(uploadedFiles.reduce((sum, f) => sum + f.size, 0) / 1024 / 1024).toFixed(2)} MB
+                          {uploadedFiles.reduce((sum, f) => sum + f.size, 0) > 5 * 1024 * 1024 && (
+                            <span className="ml-2 text-orange-600 font-medium">⚠️ Large file - may take time</span>
+                          )}
+                        </div>
+                      </div>
                       {uploadedFiles.map((file) => (
                         <div key={file.name} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                           <div className="flex items-center gap-3">
@@ -727,6 +864,7 @@ function App() {
                   <button
                     onClick={() => setCurrentStep(1)}
                     className="px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                    disabled={processing}
                   >
                     Back
                   </button>
@@ -735,9 +873,31 @@ function App() {
                     disabled={processing || !apiKey || (hasGroundTruth && !!mismatchError)}
                     className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50"
                   >
-                    {processing ? 'Processing...' : 'Process Files'}
+                    {processing ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        Processing...
+                      </>
+                    ) : (
+                      'Process Files'
+                    )}
                   </button>
                 </div>
+                
+                {/* Processing Status */}
+                {processing && processingStatus && (
+                  <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                      <div>
+                        <p className="text-blue-900 font-medium">{processingStatus}</p>
+                        <p className="text-sm text-blue-700 mt-1">
+                          Please wait... Large files may take several minutes to process.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
