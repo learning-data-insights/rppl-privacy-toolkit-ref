@@ -42,11 +42,52 @@ rppl-privacy-toolkit/
 
 ## Prerequisites
 
+### Option 1: Docker (Recommended for Easy Setup)
+- Docker Desktop (Windows/Mac) or Docker Engine + Docker Compose (Linux)
+- OpenAI API key ([Get one here](https://platform.openai.com/api-keys))
+
+### Option 2: Manual Installation
 - Python 3.8+
 - Node.js 16+
-- OpenAI API key
+- OpenAI API key ([Get one here](https://platform.openai.com/api-keys))
 
-## Installation
+## Quick Start with Docker
+
+Docker provides a single-command setup with no need to install Python, Node.js, or manage virtual environments.
+
+### 1. Set Up Environment Variables
+
+Create a `.env` file with your OpenAI API key:
+
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit .env and replace 'your-api-key-here' with your actual API key
+# Get your API key at: https://platform.openai.com/api-keys
+```
+
+### 2. Start the Application
+
+```bash
+docker-compose up
+```
+
+The application will be available at:
+- **Frontend**: http://localhost:3000
+- **Backend API**: http://localhost:5000
+
+To stop the application:
+```bash
+docker-compose down
+```
+
+To rebuild after code changes:
+```bash
+docker-compose up --build
+```
+
+## Manual Installation
 
 From the root directory (`rppl-privacy-toolkit-ref`):
 

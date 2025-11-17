@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: rppl-backend
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=development
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    env_file:
+      - .env
+    volumes:
+      # Mount source code for development hot-reloading
+      - ./application.py:/app/application.py
+      - ./backend:/app/backend
+      # Persist uploaded files and results
+      - backend-uploads:/app/backend/temp_uploads
+      - backend-results:/app/backend/results
+    networks:
+      - rppl-network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: rppl-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_URL=http://backend:5000
+    volumes:
+      # Mount source code for development hot-reloading
+      - ./frontend:/app/frontend
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - rppl-network
+    restart: unless-stopped
+
+volumes:
+  backend-uploads:
+  backend-results:
+
+networks:
+  rppl-network:
+    driver: bridge
