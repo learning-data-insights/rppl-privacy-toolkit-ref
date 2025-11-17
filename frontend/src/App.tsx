@@ -4,6 +4,7 @@ import axios from 'axios';
 import { initializeDiff2HtmlCheckboxes, saveAllFiles, addDiff2HtmlUIFeatures } from './utils/diff2htmlCheckbox';
 import ChangesModal from './components/ChangesModal';
 import EditPromptModal from './components/EditPromptModal';
+import './styles/diff2html-custom.css';
 
 const API_BASE_URL = '/api';
 
@@ -68,6 +69,9 @@ function App() {
   const [editingPrompt, setEditingPrompt] = useState<Prompt | null>(null);
   // Persist checkbox states per filename while the session is active
   const [checkboxStates, setCheckboxStates] = useState<{ [fileName: string]: string[] }>({});
+  // Column selection state
+  const [availableColumns, setAvailableColumns] = useState<any[]>([]);
+  const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
 
   const handleSavePrompt = async (updated: Prompt) => {
     // Create a new session-only Custom Prompt and select it
@@ -257,11 +261,63 @@ function App() {
         },
         timeout: 120000 // 2 minute timeout for upload
       });
-      setSessionId(response.data.session_id);
-      return response.data.session_id;
+      const newSessionId = response.data.session_id;
+      setSessionId(newSessionId);
+
+      // Fetch column information for uploaded files
+      await fetchColumnInfo(newSessionId);
+
+      return newSessionId;
     } catch (error) {
       console.error('Upload failed:', error);
       throw error;
+    }
+  };
+
+  const fetchColumnInfo = async (sessionId: string) => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/columns/${sessionId}`);
+      const filesData = response.data.files;
+
+      if (filesData && filesData.length > 0) {
+        // Merge columns from all files, tracking which files have each column
+        const columnMap = new Map<string, any>();
+
+        filesData.forEach((fileData: any) => {
+          fileData.columns.forEach((col: any) => {
+            if (!columnMap.has(col.name)) {
+              columnMap.set(col.name, {
+                ...col,
+                filesWithColumn: [fileData.fileName]
+              });
+            } else {
+              const existing = columnMap.get(col.name);
+              existing.filesWithColumn.push(fileData.fileName);
+              // Keep as recommended if any file recommends it
+              existing.recommended = existing.recommended || col.recommended;
+            }
+          });
+        });
+
+        const mergedColumns = Array.from(columnMap.values());
+        setAvailableColumns(mergedColumns);
+
+        // Auto-select recommended text columns
+        const recommendedColumns = mergedColumns
+          .filter((col: any) => col.recommended)
+          .map((col: any) => col.name);
+
+        if (recommendedColumns.length > 0) {
+          setSelectedColumns(recommendedColumns);
+        } else {
+          const textColumns = mergedColumns
+            .filter((col: any) => col.is_text)
+            .map((col: any) => col.name);
+          setSelectedColumns(textColumns);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch column info:', error);
     }
   };
 
@@ -297,10 +353,13 @@ function App() {
 
     setProcessing(true);
     setProcessingStatus('Preparing files...');
-    
+
     try {
-      // First upload files
-      const newSessionId = await uploadFilesToServer();
+      // Upload files if not already uploaded
+      let newSessionId = sessionId;
+      if (!newSessionId) {
+        newSessionId = await uploadFilesToServer();
+      }
       
       // Start polling for progress
       progressIntervalRef.current = window.setInterval(async () => {
@@ -323,12 +382,17 @@ function App() {
 
       // If user selected a session-only Custom Prompt, send prompt_text only and omit prompt_index
       let payload: any = { session_id: newSessionId };
-      
+
       // Only include API key if user wants to use their own
       if (useCustomApiKey && apiKey) {
         payload.api_key = apiKey;
       }
-      
+
+      // Include selected columns for processing
+      if (selectedColumns.length > 0) {
+        payload.columns_to_process = selectedColumns;
+      }
+
       if (selectedPrompt) {
         if (selectedPrompt.name === 'Custom Prompt') {
           // Custom session-only prompt: send only prompt_text (backend will use it)
@@ -394,18 +458,8 @@ function App() {
           'This usually means your file has too many rows. Try:\n' +
           '• Splitting into files with < 200 rows each\n' +
           '• Processing fewer rows at a time\n' +
-          '• Ensuring your file has the correct column name (post_text_original)\n\n' +
+          '• Selecting fewer columns to process\n\n' +
           'Note: Batch processing is enabled, but very large files may still timeout.'
-        );
-      } else if (error.response?.status === 400 && error.response?.data?.error?.includes('post_text_original')) {
-        // Column validation error
-        alert(
-          'Invalid CSV format: Missing required column\n\n' +
-          error.response.data.error + '\n\n' +
-          'To fix this:\n' +
-          '1. Open your CSV file in Excel or a spreadsheet program\n' +
-          '2. Rename your text column to: post_text_original\n' +
-          '3. Save the file and try uploading again'
         );
       } else if (error.response?.status === 401) {
         alert('Invalid API key. Please check your OpenAI API key and try again.');
@@ -656,29 +710,19 @@ function App() {
                 
                 {/* Instructions Box */}
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-                  <h3 className="font-semibold text-blue-900 mb-2">📋 CSV File Requirements</h3>
+                  <h3 className="font-semibold text-blue-900 mb-2">📋 How It Works</h3>
                   <p className="text-sm text-blue-800 mb-3">
-                    Your CSV file <strong>must</strong> have the following columns:
+                    Upload your CSV files with any column names. The system will:
                   </p>
                   <div className="bg-white rounded p-3 mb-3">
                     <div className="text-sm text-blue-900 space-y-2">
-                      <div>
-                        <span className="font-semibold">Required:</span>
-                        <code className="bg-blue-100 px-2 py-0.5 rounded ml-2 font-semibold">post_text_original</code>
-                        <span className="text-gray-600 ml-2">— The text content to redact (other columns will be ignored)</span>
-                      </div>
-                      <div>
-                        <span className="font-semibold">Optional:</span>
-                        <code className="bg-blue-100 px-2 py-0.5 rounded ml-2">id</code>
-                        <span className="text-gray-600 ml-2">— Row identifier (uses row numbers if not provided)</span>
-                      </div>
+                      <div>✓ Auto-detect text columns that may contain sensitive information</div>
+                      <div>✓ Let you choose which columns to de-identify</div>
+                      <div>✓ Generate an ID column if your file doesn't have one</div>
                     </div>
                   </div>
                   <p className="text-sm text-blue-800 mt-3">
-                    💡 <strong>Tip:</strong> If your column has a different name, rename it to <code className="bg-blue-100 px-2 py-0.5 rounded">post_text_original</code> in Excel or your spreadsheet program before uploading.
-                  </p>
-                  <p className="text-sm text-red-700 mt-2 font-medium">
-                    ⚠️ Files without a <code className="bg-red-100 px-2 py-0.5 rounded">post_text_original</code> column will be rejected.
+                    💡 <strong>Tip:</strong> You can upload multiple files at once, even if they have different columns.
                   </p>
                 </div>
                 
@@ -748,7 +792,18 @@ function App() {
 
                 <div className="flex justify-center mt-8">
                   <button
-                    onClick={() => setCurrentStep(2)}
+                    onClick={async () => {
+                      if (uploadedFiles.length > 0 && !sessionId) {
+                        // Upload files and fetch column info before proceeding
+                        try {
+                          await uploadFilesToServer();
+                        } catch (error) {
+                          alert('Failed to upload files. Please try again.');
+                          return;
+                        }
+                      }
+                      setCurrentStep(2);
+                    }}
                     disabled={uploadedFiles.length === 0}
                     className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
@@ -766,7 +821,7 @@ function App() {
                 {/* API Key Configuration */}
                 <div className="bg-gray-50 rounded-lg p-6 mb-6">
                   <h3 className="text-lg font-semibold mb-4">OpenAI API Key</h3>
-                  
+
                   {/* Toggle for custom API key */}
                   <label className="flex items-center gap-3 cursor-pointer mb-4">
                     <input
@@ -782,7 +837,7 @@ function App() {
                     />
                     <span>Use Custom API Key (optional)</span>
                   </label>
-                  
+
                   {useCustomApiKey && (
                     <>
                       <div className="flex gap-3">
@@ -797,11 +852,85 @@ function App() {
                       <p className="text-sm text-gray-600 mt-2">Enter your own OpenAI API key for processing</p>
                     </>
                   )}
-                  
+
                   {!useCustomApiKey && (
                     <p className="text-sm text-gray-600">Using default API key configured in the environment</p>
                   )}
                 </div>
+
+                {/* Column Selection */}
+                {availableColumns.length > 0 && (
+                  <div className="bg-gray-50 rounded-lg p-6 mb-6">
+                    <h3 className="text-lg font-semibold mb-4">Select Columns to De-identify</h3>
+                    <p className="text-sm text-gray-600 mb-4">
+                      The system has pre-selected text columns that may contain sensitive information. Please review and adjust your selection as needed.
+                    </p>
+
+                    <div className="space-y-3 max-h-64 overflow-y-auto">
+                      {availableColumns.map((col) => (
+                        <label
+                          key={col.name}
+                          className={`flex items-start gap-3 p-3 rounded border cursor-pointer transition-colors ${
+                            selectedColumns.includes(col.name)
+                              ? 'bg-blue-50 border-blue-300'
+                              : 'bg-white border-gray-200 hover:bg-gray-50'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedColumns.includes(col.name)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedColumns([...selectedColumns, col.name]);
+                              } else {
+                                setSelectedColumns(selectedColumns.filter(c => c !== col.name));
+                              }
+                            }}
+                            className="mt-1 w-5 h-5"
+                          />
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-medium">{col.name}</span>
+                              {col.recommended && (
+                                <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded">
+                                  Auto-detected
+                                </span>
+                              )}
+                              {col.filesWithColumn && col.filesWithColumn.length > 0 && (
+                                <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded">
+                                  {col.filesWithColumn.length} file{col.filesWithColumn.length > 1 ? 's' : ''}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs text-gray-500 mt-1">
+                              Type: {col.type}
+                            </div>
+                            {col.filesWithColumn && col.filesWithColumn.length > 0 && col.filesWithColumn.length <= 3 && (
+                              <div className="text-xs text-gray-500 mt-1">
+                                Files: {col.filesWithColumn.join(', ')}
+                              </div>
+                            )}
+                            {col.sample && (
+                              <div className="text-xs text-gray-600 mt-1 p-2 bg-gray-100 rounded">
+                                Sample: {col.sample}
+                              </div>
+                            )}
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+
+                    {selectedColumns.length === 0 && (
+                      <div className="mt-3 text-sm text-amber-600 bg-amber-50 border border-amber-200 p-2 rounded">
+                        ⚠️ Please select at least one column to process
+                      </div>
+                    )}
+
+                    <div className="mt-3 text-sm text-gray-600">
+                      {selectedColumns.length} column(s) selected for de-identification
+                    </div>
+                  </div>
+                )}
 
                 {/* Ground Truth Configuration */}
                 <div className="bg-gray-50 rounded-lg p-6 mb-6">
@@ -908,8 +1037,8 @@ function App() {
                   </button>
                   <button
                     onClick={processFiles}
-                    disabled={processing || (useCustomApiKey && !apiKey) || (hasGroundTruth && !!mismatchError)}
-                    className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+                    disabled={processing || (useCustomApiKey && !apiKey) || (hasGroundTruth && !!mismatchError) || selectedColumns.length === 0}
+                    className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {processing ? (
                       <>
@@ -951,20 +1080,19 @@ function App() {
                   </summary>
                   <div className="px-4 pb-4 text-sm text-blue-800 space-y-2">
                     <p>
-                      <strong>1. Review Redactions:</strong> Use the tabs below to view each file. The diff view shows original text (left) and redacted text (right) side-by-side. 
+                      <strong>1. Review Redactions:</strong> The diff view shows original text (left) and redacted text (right) side-by-side.
                       <span className="italic"> Only rows with changes are displayed.</span>
                     </p>
                     <p>
-                      <strong>2. Customize (Optional):</strong> Check/uncheck boxes next to each redaction to include or exclude it from the final output.
+                      <strong>2. Customize (Optional):</strong> Click checkboxes next to redactions to undo them (keep original text instead).
                     </p>
                     <p>
-                      <strong>3. Download:</strong> Click <span className="font-semibold">"Save & Download"</span> to get a CSV file with your customizations. The downloaded file will include:
+                      <strong>3. Download:</strong> Click <span className="font-semibold">"Save & Download"</span> to get your final CSV. Each column will have:
                     </p>
                     <ul className="list-disc ml-6 text-blue-800">
-                      <li><code className="bg-blue-100 px-1 rounded">id</code> — Row identifier</li>
-                      <li><code className="bg-blue-100 px-1 rounded">post_text_original</code> — Original text</li>
-                      <li><code className="bg-blue-100 px-1 rounded">post_text_OpenAI_redacted</code> — AI-suggested redactions</li>
-                      <li><code className="bg-blue-100 px-1 rounded">post_text_user_edited</code> — Your final version (with your checkbox selections applied)</li>
+                      <li><code className="bg-blue-100 px-1 rounded">column_name</code> — Original text</li>
+                      <li><code className="bg-blue-100 px-1 rounded">column_name_OpenAI_redacted</code> — AI-generated redactions</li>
+                      <li><code className="bg-blue-100 px-1 rounded">column_name_user_edited</code> — Populated only for rows where you unchecked redactions</li>
                     </ul>
                   </div>
                 </details>
@@ -1015,27 +1143,33 @@ function App() {
                   </div>
 
                   {/* File Tabs */}
-                  <div className="flex gap-2 mb-4 border-b">
-                    {processedData.map((file) => (
-                      <button
-                        key={file.fileName}
-                        onClick={() => {
-                          setSelectedFile(file.fileName);
-                          // Force re-render of diff if content exists but wasn't displayed
-                          if (currentDiff && diffContainerRef.current) {
-                            setTimeout(() => renderDiff2Html(), 100);
-                          }
-                        }}
-                        className={`px-4 py-2 font-medium transition-colors ${
-                          selectedFile === file.fileName
-                            ? 'border-b-2 border-blue-600 text-blue-600'
-                            : 'text-gray-600 hover:text-gray-900'
-                        }`}
-                      >
-                        {file.fileName}
-                      </button>
-                    ))}
-                  </div>
+                  {processedData.length > 1 && (
+                    <div className="mb-4">
+                      <p className="text-sm text-gray-600 mb-2">
+                        {processedData.length} files processed. Click tabs to switch between files:
+                      </p>
+                      <div className="flex gap-2 border-b">
+                        {processedData.map((file) => (
+                          <button
+                            key={file.fileName}
+                            onClick={() => {
+                              setSelectedFile(file.fileName);
+                              if (currentDiff && diffContainerRef.current) {
+                                setTimeout(() => renderDiff2Html(), 100);
+                              }
+                            }}
+                            className={`px-4 py-2 font-medium transition-colors ${
+                              selectedFile === file.fileName
+                                ? 'border-b-2 border-blue-600 text-blue-600'
+                                : 'text-gray-600 hover:text-gray-900'
+                            }`}
+                          >
+                            {file.fileName}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Diff View using diff2html */}
                   <div ref={diffContainerRef} className="bg-white rounded-lg p-4 overflow-auto" style={{ maxHeight: '600px' }}>

@@ -110,17 +110,18 @@ class DiffGenerator:
         return '\n'.join(all_diffs)
     
     @staticmethod
-    def generate_csv_diff(original_data: List[Dict], redacted_data: List[Dict], 
+    def generate_csv_diff(original_data: List[Dict], redacted_data: List[Dict],
                          filename: str = "data.csv") -> str:
         """
         Generate a unified diff for CSV data by comparing text fields.
         Shows ALL rows, even unchanged ones, for review purposes.
-        
+        Automatically detects columns with _OpenAI_redacted suffix.
+
         Args:
             original_data: List of original data records
             redacted_data: List of redacted data records
             filename: The filename to use in the diff header
-        
+
         Returns:
             A unified diff string
         """
@@ -130,24 +131,52 @@ class DiffGenerator:
         logger.info(f"Generating diff for {filename}")
         logger.info(f"Original data rows: {len(original_data)}")
         logger.info(f"Redacted data rows: {len(redacted_data)}")
-        
+
+        # Find columns with _OpenAI_redacted suffix in redacted data
+        if not redacted_data:
+            return DiffGenerator.generate_diff("No data", "No data", filename)
+
+        redacted_columns = [col for col in redacted_data[0].keys() if col.endswith('_OpenAI_redacted')]
+        logger.info(f"Found redacted columns: {redacted_columns}")
+
+        if not redacted_columns:
+            # Fallback to legacy column names
+            logger.warning("No _OpenAI_redacted columns found, trying legacy format")
+            redacted_columns = ['post_text_OpenAI_redacted']
+
         # Extract text content from records
         original_texts = []
         redacted_texts = []
-        
+
         for idx, (orig, red) in enumerate(zip(original_data, redacted_data)):
-            # Get the main text field (adjust based on your data structure)
-            orig_text = orig.get('post_text_original') or orig.get('post_text', '')
-            red_text = red.get('post_text_OpenAI_redacted') or red.get('post_text', '')
-            
+            # Build combined text from all processed columns
+            orig_parts = []
+            red_parts = []
+
+            for redacted_col in redacted_columns:
+                # Get the original column name (remove _OpenAI_redacted suffix)
+                original_col = redacted_col.replace('_OpenAI_redacted', '')
+
+                # Get text from both original and redacted
+                orig_text = str(orig.get(original_col, '')) if orig.get(original_col) else ''
+                red_text = str(red.get(redacted_col, '')) if red.get(redacted_col) else ''
+
+                if orig_text or red_text:
+                    orig_parts.append(orig_text)
+                    red_parts.append(red_text)
+
+            # Combine all column parts with double newline separator
+            orig_combined = '\n\n'.join(orig_parts)
+            red_combined = '\n\n'.join(red_parts)
+
             # Skip posts where text is identical (no changes)
-            if orig_text == red_text:
+            if orig_combined == red_combined:
                 continue
-            
-            if orig_text or red_text:
+
+            if orig_combined or red_combined:
                 # Check if we have an actual ID from the CSV (not just a row index)
-                orig_id = orig.get('id', None)
-                
+                orig_id = orig.get('id', None) or red.get('id', None)
+
                 # Show Post ID only if:
                 # 1. ID exists
                 # 2. ID is a string (actual identifier from CSV)
@@ -161,14 +190,14 @@ class DiffGenerator:
                         # Numeric IDs: show if they're non-negative integers
                         # This assumes CSV IDs start from 0 or 1
                         show_id = orig_id >= 0
-                
+
                 if show_id:
-                    original_texts.append(f"Post ID: {orig_id}\n{orig_text}")
-                    redacted_texts.append(f"Post ID: {orig_id}\n{red_text}")
+                    original_texts.append(f"Post ID: {orig_id}\n{orig_combined}")
+                    redacted_texts.append(f"Post ID: {orig_id}\n{red_combined}")
                 else:
                     # No ID or it's just a row index - don't show it
-                    original_texts.append(orig_text)
-                    redacted_texts.append(red_text)
+                    original_texts.append(orig_combined)
+                    redacted_texts.append(red_combined)
         
         # Instead of using unified_diff which only shows changes,
         # create a side-by-side comparison that shows ALL content

@@ -158,7 +158,7 @@
 .diff-container {
   background: white;
   border-radius: 8px;
-  padding: 16px;
+  padding: 8px;
   overflow: auto;
   max-height: 600px;
   width: 100%;
@@ -170,45 +170,56 @@
   display: table;
   width: 100%;
   table-layout: fixed;
+  border-spacing: 0;
 }
 
 .d2h-code-side-line {
   display: table-cell;
   width: 50%;
   vertical-align: top;
+  padding: 0 !important;
 }
 
 /* Fix for side-by-side line numbers */
 .d2h-code-side-linenumber {
-  width: 40px !important;
-  min-width: 40px !important;
-  max-width: 40px !important;
-  padding: 0 5px;
+  width: 50px !important;
+  min-width: 50px !important;
+  max-width: 50px !important;
+  padding: 0 4px !important;
   box-sizing: border-box;
-  /* Override the two problematic properties from diff2html.min.css */
-  display: block !important; /* Override display: inline-block */
-  position: static !important; /* Override position: absolute */
+  display: table-cell !important;
+  position: static !important;
+  text-align: right !important;
+  vertical-align: top !important;
 }
 
 /* Ensure proper width for code content in side-by-side */
-td.d2h-code-side-linenumber + td {
-  width: calc(50% - 40px);
+.d2h-code-side-emptyplaceholder,
+.d2h-code-line-ctn {
+  display: table-cell !important;
+  width: auto !important;
+  padding: 0 8px !important;
+  box-sizing: border-box;
 }
 
 /* Override any conflicting Tailwind styles */
 .d2h-wrapper table {
   table-layout: fixed !important;
+  width: 100% !important;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
 }
 
 .d2h-wrapper td {
   padding: 0 !important;
   vertical-align: top !important;
+  box-sizing: border-box !important;
 }
 
 /* Fix specific overflow issues with line numbers */
 .d2h-diff-tbody tr td:first-child,
 .d2h-diff-tbody tr td:nth-child(3) {
-  width: 40px !important;
-  min-width: 40px !important;
-  max-width: 40px !important;
+  width: 50px !important;
+  min-width: 50px !important;
+  max-width: 50px !important;
 }

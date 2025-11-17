@@ -122,27 +122,41 @@ class DeidentificationService:
             logger.info("Falling back to individual API calls for this batch")
             return [self.api_call(text, prompt) for text in texts]
     
-    def process_dataframe(self, df, prompt_index=0, prompt_text: str = None, batch_size=8, progress_callback=None):
+    def process_dataframe(self, df, prompt_index=0, prompt_text: str = None, batch_size=8, progress_callback=None, columns_to_process=None):
         """
         Process a dataframe using batch API calls for improved performance.
-        
+
         Args:
             df: DataFrame to process
             prompt_index: Index of prompt to use
             prompt_text: Optional custom prompt text (overrides prompt_index)
             batch_size: Number of rows to process per API call (default: 8, optimized for speed vs. accuracy)
             progress_callback: Optional callback function to report progress (batch_num, total_batches)
+            columns_to_process: List of column names to process. If None, looks for 'post_text_original' (backward compatibility)
         """
         if not self.client:
             logger.error("API key not set - Please check your API key")
             raise ValueError("API key not set - Please check your API key")
-        
-        # Validate required column exists
-        if 'post_text_original' not in df.columns:
+
+        # Handle column selection with backward compatibility
+        if columns_to_process is None:
+            # Legacy behavior: require 'post_text_original'
+            if 'post_text_original' not in df.columns:
+                error_msg = (
+                    "No columns specified for processing and default column 'post_text_original' not found. "
+                    f"Available columns: {', '.join(df.columns.tolist())}. "
+                    "Please specify which columns to process."
+                )
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+            columns_to_process = ['post_text_original']
+
+        # Validate all specified columns exist
+        missing_columns = [col for col in columns_to_process if col not in df.columns]
+        if missing_columns:
             error_msg = (
-                "Required column 'post_text_original' not found in CSV file. "
-                f"Found columns: {', '.join(df.columns.tolist())}. "
-                "Please rename your text column to 'post_text_original' and try again."
+                f"Specified columns not found in CSV: {', '.join(missing_columns)}. "
+                f"Available columns: {', '.join(df.columns.tolist())}"
             )
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -156,56 +170,152 @@ class DeidentificationService:
                 prompt = self.prompts_df['prompt'].iloc[prompt_index]
             else:
                 prompt = self.default_prompt
-        
+
+        # Auto-generate ID column if it doesn't exist
+        if 'id' not in df.columns:
+            logger.info("No 'id' column found, auto-generating IDs")
+            df = df.copy()
+            df.insert(0, 'id', range(1, len(df) + 1))
+
         results = []
         total_rows = len(df)
-        
-        # Collect all texts and their metadata first
-        rows_to_process = []
-        for row_idx in df.index:
-            # Only use post_text_original column
-            original_text = df.loc[row_idx, 'post_text_original']
-            
-            rows_to_process.append({
-                'index': row_idx,
-                'text': original_text,
-                'id': df.loc[row_idx, 'id'] if 'id' in df.columns else row_idx
-            })
-        
-        # Process in batches
-        total_batches = (len(rows_to_process) + batch_size - 1) // batch_size
-        
-        for batch_num in range(0, len(rows_to_process), batch_size):
-            batch = rows_to_process[batch_num:batch_num + batch_size]
-            batch_texts = [row['text'] for row in batch]
-            
-            current_batch = (batch_num // batch_size) + 1
-            
-            # Report progress via callback if provided
-            if progress_callback:
-                progress_callback(current_batch, total_batches)
-            
-            logger.info(f"Processing batch {current_batch}/{total_batches} ({len(batch)} rows)")
-            print(f"Progress: Batch {current_batch}/{total_batches} - Rows {batch_num + 1}-{min(batch_num + batch_size, len(rows_to_process))}/{len(rows_to_process)}")
-            
-            # Call batch API
-            redacted_texts = self.api_call_batch(batch_texts, prompt)
-            
-            # Create result entries
-            for row, redacted_text in zip(batch, redacted_texts):
-                result_entry = {
-                    'id': row['id'],
-                    'post_text_original': row['text'],
-                    'post_text_OpenAI_redacted': redacted_text
-                }
-                results.append(result_entry)
-        
-        logger.info(f"Completed processing {len(results)}/{total_rows} rows")
-        print(f"Processing complete: {len(results)}/{total_rows} rows processed")
-        
+
+        # Process each column separately
+        for col_name in columns_to_process:
+            logger.info(f"Processing column: {col_name}")
+            print(f"\nProcessing column: {col_name}")
+
+            # Collect all texts and their metadata for this column
+            rows_to_process = []
+            for row_idx in df.index:
+                original_text = df.loc[row_idx, col_name]
+
+                rows_to_process.append({
+                    'index': row_idx,
+                    'text': original_text,
+                    'id': df.loc[row_idx, 'id']
+                })
+
+            # Process in batches
+            total_batches = (len(rows_to_process) + batch_size - 1) // batch_size
+            column_results = []
+
+            for batch_num in range(0, len(rows_to_process), batch_size):
+                batch = rows_to_process[batch_num:batch_num + batch_size]
+                batch_texts = [row['text'] for row in batch]
+
+                current_batch = (batch_num // batch_size) + 1
+
+                # Report progress via callback if provided
+                if progress_callback:
+                    progress_callback(current_batch, total_batches)
+
+                logger.info(f"Processing batch {current_batch}/{total_batches} ({len(batch)} rows) for column '{col_name}'")
+                print(f"Progress: Batch {current_batch}/{total_batches} - Rows {batch_num + 1}-{min(batch_num + batch_size, len(rows_to_process))}/{len(rows_to_process)}")
+
+                # Call batch API
+                redacted_texts = self.api_call_batch(batch_texts, prompt)
+
+                # Store results for this column
+                for row, redacted_text in zip(batch, redacted_texts):
+                    column_results.append({
+                        'id': row['id'],
+                        'index': row['index'],
+                        'original': row['text'],
+                        'redacted': redacted_text
+                    })
+
+            # Merge column results into main results
+            output_col_name = f"{col_name}_OpenAI_redacted"
+
+            if not results:
+                # First column - create result entries with ID and original columns
+                for row_result in column_results:
+                    result_entry = {
+                        'id': row_result['id'],
+                        col_name: row_result['original'],
+                        output_col_name: row_result['redacted']
+                    }
+                    results.append(result_entry)
+            else:
+                # Additional columns - add to existing results
+                for i, row_result in enumerate(column_results):
+                    results[i][col_name] = row_result['original']
+                    results[i][output_col_name] = row_result['redacted']
+
+        logger.info(f"Completed processing {len(results)} rows across {len(columns_to_process)} column(s)")
+        print(f"Processing complete: {len(results)} rows processed across {len(columns_to_process)} column(s)")
+
         return results
     
-    def process_csv_file(self, filepath, prompt_index=0):
+    def process_csv_file(self, filepath, prompt_index=0, columns_to_process=None):
         """Process a CSV file following the original script logic"""
         df = pd.read_csv(filepath, encoding='utf-8', encoding_errors='replace')
-        return self.process_dataframe(df, prompt_index)
+        return self.process_dataframe(df, prompt_index, columns_to_process=columns_to_process)
+
+    @staticmethod
+    def detect_text_columns(df):
+        """
+        Detect columns that contain text data suitable for de-identification.
+
+        Args:
+            df: DataFrame to analyze
+
+        Returns:
+            List of column names that appear to contain text data
+        """
+        text_columns = []
+
+        for col in df.columns:
+            # Skip ID-like columns
+            if col.lower() in ['id', 'index', 'row_id', 'record_id']:
+                continue
+
+            # Check if column contains string data
+            if df[col].dtype == 'object' or pd.api.types.is_string_dtype(df[col]):
+                # Sample some non-null values to check if they look like text
+                sample = df[col].dropna().head(10)
+
+                if len(sample) > 0:
+                    # Check if values are reasonably long strings (not just codes or short identifiers)
+                    avg_length = sample.astype(str).str.len().mean()
+
+                    # Consider it a text column if average length > 20 characters
+                    if avg_length > 20:
+                        text_columns.append(col)
+
+        return text_columns
+
+    @staticmethod
+    def get_column_info(df):
+        """
+        Get information about all columns in the dataframe.
+
+        Args:
+            df: DataFrame to analyze
+
+        Returns:
+            Dictionary with column info including name, type, sample values, and whether it's recommended for processing
+        """
+        text_columns = DeidentificationService.detect_text_columns(df)
+        column_info = []
+
+        for col in df.columns:
+            # Get sample value (first non-null)
+            sample_value = None
+            non_null = df[col].dropna()
+            if len(non_null) > 0:
+                sample_value = str(non_null.iloc[0])
+                # Truncate if too long
+                if len(sample_value) > 100:
+                    sample_value = sample_value[:100] + "..."
+
+            column_info.append({
+                'name': col,
+                'type': str(df[col].dtype),
+                'sample': sample_value,
+                'is_text': col in text_columns,
+                'recommended': col in text_columns
+            })
+
+        return column_info

@@ -122,24 +122,18 @@ def upload_files():
                 filename = secure_filename(file.filename)
                 filepath = os.path.join(application.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
                 file.save(filepath)
-                
-                # Read CSV and standardize format
+
+                # Read CSV - keep all columns
                 df = pd.read_csv(filepath)
-                
-                # Add 'id' column if it doesn't exist (sequential numbers starting from 1)
-                if 'id' not in df.columns:
-                    df.insert(0, 'id', range(1, len(df) + 1))
-                
-                # Keep ONLY id and post_text_original columns
-                if 'post_text_original' not in df.columns:
-                    return jsonify({'error': f'File {filename} must have a post_text_original column'}), 400
-                
-                df = df[['id', 'post_text_original']]
-                
+
+                # Get column information for auto-detection
+                column_info = DeidentificationService.get_column_info(df)
+
                 sessions[session_id]['files'].append({
                     'name': filename,
                     'path': filepath,
-                    'data': convert_to_json_serializable(df.to_dict('records'))
+                    'data': convert_to_json_serializable(df.to_dict('records')),
+                    'columns': column_info
                 })
         
         # Process ground truth files if provided
@@ -173,10 +167,11 @@ def deidentify():
         session_id = data.get('session_id')
         prompt_index = data.get('prompt_index', 0)
         api_key = data.get('api_key')
-        
+        columns_to_process = data.get('columns_to_process')  # New parameter
+
         if not session_id or session_id not in sessions:
             return jsonify({'error': 'Invalid session'}), 400
-        
+
         # Use provided API key if present, otherwise fall back to environment variable
         if not api_key:
             api_key = os.getenv('OPENAI_API_KEY')
@@ -184,17 +179,17 @@ def deidentify():
                 logger.error('No API key provided and OPENAI_API_KEY not set in environment')
                 return jsonify({'error': 'API key required'}), 400
             logger.info('Using default API key from environment variable')
-        
+
         session = sessions[session_id]
         results = []
-        
+
         deidentification_service.set_api_key(api_key)
-        
+
         prompt_text = data.get('prompt_text')
-        
+
         # Initialize progress tracking
         session['progress'] = {'current': 0, 'total': 0, 'status': 'starting'}
-        
+
         def update_progress(current_batch, total_batches):
             """Callback to update progress in session"""
             session['progress'] = {
@@ -202,14 +197,32 @@ def deidentify():
                 'total': total_batches,
                 'status': 'processing'
             }
-        
+
         for file_info in session['files']:
             # Process each file
             df = pd.DataFrame(file_info['data'])
-            
+
+            # Use specified columns or auto-detect, but only process columns that exist in this file
+            if columns_to_process:
+                # Filter to only columns that exist in this specific file
+                available_columns = set(df.columns)
+                columns_for_this_file = [col for col in columns_to_process if col in available_columns]
+
+                if not columns_for_this_file:
+                    logger.warning(f"None of the selected columns exist in {file_info['name']}. Skipping file.")
+                    continue
+
+                logger.info(f"Processing {file_info['name']} with columns: {columns_for_this_file}")
+            else:
+                # Auto-detect text columns
+                columns_for_this_file = DeidentificationService.detect_text_columns(df)
+                logger.info(f"Auto-detected columns for {file_info['name']}: {columns_for_this_file}")
+
             # Perform deidentification with progress callback
             redacted_data = deidentification_service.process_dataframe(
-                df, prompt_index, prompt_text, progress_callback=update_progress
+                df, prompt_index, prompt_text,
+                progress_callback=update_progress,
+                columns_to_process=columns_for_this_file
             )
             
             # Calculate metrics if ground truth available
@@ -227,19 +240,13 @@ def deidentify():
                     )
             
             # Generate diff for this file
-            # Only pass the columns needed for diff (id and text columns)
-            # This prevents extra columns from breaking the layout
-            original_for_diff = [{
-                'id': item.get('id'),
-                'post_text_original': item.get('post_text_original')
-            } for item in file_info['data']]
-            
+            # Pass the full original data - DiffGenerator will extract relevant columns
             logger.info(f"Generating diff for {file_info['name']}")
-            logger.info(f"Original data count: {len(original_for_diff)}, Redacted data count: {len(redacted_data)}")
-            
+            logger.info(f"Original data count: {len(file_info['data'])}, Redacted data count: {len(redacted_data)}")
+
             diff_string = DiffGenerator.generate_csv_diff(
-                original_for_diff, 
-                redacted_data,
+                file_info['data'],  # Original data with all columns
+                redacted_data,      # Redacted data with original + redacted columns
                 file_info['name']
             )
             
@@ -368,40 +375,67 @@ def download_results(session_id):
         
         with zipfile.ZipFile(zip_path, 'w') as zipf:
             for result in session['results']:
-                # Start with original data (id + post_text_original)
-                df = pd.DataFrame(result['original'])
-                
-                # Add OpenAI redacted column
-                redacted_df = pd.DataFrame(result['redacted'])
-                df['post_text_OpenAI_redacted'] = redacted_df['post_text_OpenAI_redacted']
-                
-                # ALWAYS add user_edited column (even if empty)
-                df['post_text_user_edited'] = None
-                
+                # Use redacted data as base (has all columns including ID and redacted versions)
+                df = pd.DataFrame(result['redacted'])
+
+                # Find redacted columns and create user_edited columns
+                redacted_columns = [col for col in df.columns if col.endswith('_OpenAI_redacted')]
+
+                # Create user_edited columns
+                for redacted_col in redacted_columns:
+                    base_col = redacted_col.replace('_OpenAI_redacted', '')
+                    user_edited_col = f'{base_col}_user_edited'
+                    df[user_edited_col] = None
+
+                # Reorder columns: id, then for each column: original, redacted, user_edited
+                ordered_columns = ['id'] if 'id' in df.columns else []
+
+                for redacted_col in redacted_columns:
+                    base_col = redacted_col.replace('_OpenAI_redacted', '')
+                    # Add original, redacted, then user_edited for each column
+                    if base_col in df.columns:
+                        ordered_columns.append(base_col)
+                    ordered_columns.append(redacted_col)
+                    ordered_columns.append(f'{base_col}_user_edited')
+
+                # Add any remaining columns that weren't processed
+                for col in df.columns:
+                    if col not in ordered_columns:
+                        ordered_columns.append(col)
+
+                # Reorder the dataframe
+                df = df[ordered_columns]
+
                 # Fill in user edits if available
                 if 'user_edits' in result and 'full_text' in result['user_edits']:
                     user_text = result['user_edits']['full_text']
-                    user_posts = [line.strip() for line in user_text.split('\n') if line.strip()]
-                    
-                    # Simple content matching: find best match for each user post
-                    for user_post in user_posts:
-                        best_match_idx = None
-                        best_score = 0
-                        
+                    user_lines = [line.strip() for line in user_text.split('\n') if line.strip()]
+
+                    # Process each redacted column to find user edits
+                    for redacted_col in redacted_columns:
+                        base_col = redacted_col.replace('_OpenAI_redacted', '')
+                        user_edited_col = f'{base_col}_user_edited'
+
+                        # For each row, check if the user edited it
                         for row_idx, row in df.iterrows():
-                            # Compare with OpenAI redacted text (calculate word overlap)
-                            redacted_text = row['post_text_OpenAI_redacted']
-                            user_words = set(user_post.lower().split())
-                            redacted_words = set(redacted_text.lower().split())
-                            overlap = len(user_words & redacted_words)
-                            
-                            if overlap > best_score:
-                                best_score = overlap
-                                best_match_idx = row_idx
-                        
-                        # Require at least 5 word overlap to avoid false matches
-                        if best_match_idx is not None and best_score > 5:
-                            df.at[best_match_idx, 'post_text_user_edited'] = user_post
+                            original_text = str(row[base_col]) if pd.notna(row[base_col]) else ''
+                            redacted_text = str(row[redacted_col]) if pd.notna(row[redacted_col]) else ''
+
+                            # Skip if no change was made
+                            if original_text == redacted_text:
+                                continue
+
+                            # Check if user chose original over redacted version
+                            for user_line in user_lines:
+                                has_original = original_text in user_line
+                                has_redacted_marker = '[REDACTED]' in user_line
+
+                                if has_original and not has_redacted_marker:
+                                    df.at[row_idx, user_edited_col] = original_text
+                                    break
+                                elif len(original_text) <= 50 and original_text == user_line:
+                                    df.at[row_idx, user_edited_col] = original_text
+                                    break
                 
                 # Write to zip
                 csv_buffer = io.StringIO()
@@ -438,33 +472,66 @@ def download_single_file(session_id, filename):
             return jsonify({'error': 'File not found'}), 404
         
         # Build the CSV with all columns
-        df = pd.DataFrame(result['original'])
-        redacted_df = pd.DataFrame(result['redacted'])
-        df['post_text_OpenAI_redacted'] = redacted_df['post_text_OpenAI_redacted']
-        df['post_text_user_edited'] = None
-        
+        df = pd.DataFrame(result['redacted'])
+
+        # Find redacted columns and create user_edited columns
+        redacted_columns = [col for col in df.columns if col.endswith('_OpenAI_redacted')]
+
+        # Create user_edited columns
+        for redacted_col in redacted_columns:
+            base_col = redacted_col.replace('_OpenAI_redacted', '')
+            user_edited_col = f'{base_col}_user_edited'
+            df[user_edited_col] = None
+
+        # Reorder columns: id, then for each column: original, redacted, user_edited
+        ordered_columns = ['id'] if 'id' in df.columns else []
+
+        for redacted_col in redacted_columns:
+            base_col = redacted_col.replace('_OpenAI_redacted', '')
+            # Add original, redacted, then user_edited for each column
+            if base_col in df.columns:
+                ordered_columns.append(base_col)
+            ordered_columns.append(redacted_col)
+            ordered_columns.append(f'{base_col}_user_edited')
+
+        # Add any remaining columns that weren't processed
+        for col in df.columns:
+            if col not in ordered_columns:
+                ordered_columns.append(col)
+
+        # Reorder the dataframe
+        df = df[ordered_columns]
+
         # Fill in user edits if available
         if 'user_edits' in result and 'full_text' in result['user_edits']:
             user_text = result['user_edits']['full_text']
-            user_posts = [line.strip() for line in user_text.split('\n') if line.strip()]
-            
-            # Match user posts to rows by content
-            for user_post in user_posts:
-                best_match_idx = None
-                best_score = 0
-                
+            user_lines = [line.strip() for line in user_text.split('\n') if line.strip()]
+
+            # Process each redacted column to find user edits
+            for redacted_col in redacted_columns:
+                base_col = redacted_col.replace('_OpenAI_redacted', '')
+                user_edited_col = f'{base_col}_user_edited'
+
+                # For each row, check if the user edited it
                 for row_idx, row in df.iterrows():
-                    redacted_text = row['post_text_OpenAI_redacted']
-                    user_words = set(user_post.lower().split())
-                    redacted_words = set(redacted_text.lower().split())
-                    overlap = len(user_words & redacted_words)
-                    
-                    if overlap > best_score:
-                        best_score = overlap
-                        best_match_idx = row_idx
-                
-                if best_match_idx is not None and best_score > 5:
-                    df.at[best_match_idx, 'post_text_user_edited'] = user_post
+                    original_text = str(row[base_col]) if pd.notna(row[base_col]) else ''
+                    redacted_text = str(row[redacted_col]) if pd.notna(row[redacted_col]) else ''
+
+                    # Skip if no change was made
+                    if original_text == redacted_text:
+                        continue
+
+                    # Check if user chose original over redacted version
+                    for user_line in user_lines:
+                        has_original = original_text in user_line
+                        has_redacted_marker = '[REDACTED]' in user_line
+
+                        if has_original and not has_redacted_marker:
+                            df.at[row_idx, user_edited_col] = original_text
+                            break
+                        elif len(original_text) <= 50 and original_text == user_line:
+                            df.at[row_idx, user_edited_col] = original_text
+                            break
         
         # Convert to CSV
         csv_buffer = io.StringIO()
@@ -535,6 +602,28 @@ def delete_session(session_id):
 
     except Exception as e:
         logger.error(f"Error deleting session {session_id}: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@application.route('/api/columns/<session_id>', methods=['GET'])
+def get_columns(session_id):
+    """Get column information for uploaded files in a session"""
+    try:
+        if session_id not in sessions:
+            return jsonify({'error': 'Invalid session'}), 400
+
+        session = sessions[session_id]
+        files_columns = []
+
+        for file_info in session['files']:
+            files_columns.append({
+                'fileName': file_info['name'],
+                'columns': file_info.get('columns', [])
+            })
+
+        return jsonify({'files': files_columns})
+
+    except Exception as e:
+        logger.error(f"Error getting columns: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @application.route('/api/prompts', methods=['GET'])

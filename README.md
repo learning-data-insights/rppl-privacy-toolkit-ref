@@ -5,7 +5,10 @@ An integrated web application for CSV file de-identification and redaction revie
 ## Features
 
 - **CSV File Processing**: Upload and process multiple CSV files simultaneously
+- **Flexible Column Selection**: Choose which columns to de-identify with auto-detection of text columns
+- **Auto-Generated IDs**: Automatically creates ID columns if not present in your data
 - **AI-Powered De-identification**: Uses OpenAI GPT-4 to identify and redact PII
+- **Multi-Column Support**: Process multiple text columns in a single run
 - **Ground Truth Evaluation**: Compare results against human-validated redactions
 - **Metrics Calculation**: Automatic calculation of accuracy, precision, recall, and Kappa scores
 - **Interactive Redaction Review**: Visual diff interface to review and adjust redactions
@@ -125,29 +128,36 @@ The React frontend will run on `http://localhost:3000`
 
 ## Usage
 
-1. **Upload Files**: 
+1. **Upload Files**:
    - Navigate to `http://localhost:3000`
    - Upload your CSV files in Step 1
-   - Files should have columns like `id` and `post_text` or `post_text_original`
+   - Files can have any column names - the system will auto-detect text columns
+   - If no `id` column exists, one will be automatically generated
 
 2. **Configure Settings**:
-   - Enter your OpenAI API key
+   - The system auto-detects columns containing text suitable for de-identification
+   - Review and select which columns you want to process (recommended columns are pre-selected)
+   - You can select multiple columns to process in a single run
+   - Optionally enter your own OpenAI API key (or use the default configured key)
    - Optionally upload ground truth files for evaluation
    - Select a de-identification prompt
 
 3. **Process Files**:
    - Click "Process Files" to run de-identification
+   - Processing time depends on file size and number of selected columns
    - View metrics if ground truth was provided
 
 4. **Review & Export**:
    - Review redactions in the diff view
    - Toggle checkboxes to undo specific redactions
    - Click "Save & Download" to export results
+   - Output files include original columns, redacted versions (e.g., `column_name_OpenAI_redacted`), and user-edited versions
 
 ## API Endpoints
 
 - `POST /api/upload` - Upload CSV files
-- `POST /api/deidentify` - Process files for de-identification
+- `GET /api/columns/<session_id>` - Get column information for uploaded files
+- `POST /api/deidentify` - Process files for de-identification (supports `columns_to_process` parameter)
 - `POST /api/update-redactions` - Update redaction states
 - `GET /api/download/<session_id>` - Download processed files
 - `GET /api/prompts` - Get available prompts
@@ -155,15 +165,34 @@ The React frontend will run on `http://localhost:3000`
 ## Data Format
 
 ### Input CSV Format
+
+Your CSV files can have any column names. The system will auto-detect text columns suitable for de-identification.
+
+**Example with custom column names:**
+```csv
+comment_id,user_comment,post_title
+1,"John Doe from New York shared his experience","My healthcare journey"
+2,"Contact me at jane@email.com for details","Support request"
+```
+
+**Legacy format (still supported):**
 ```csv
 id,post_text_original
 1,"Sample text with PII like John Doe from New York"
 ```
 
 ### Output Format
+
+Output files include:
+- Original columns (with auto-generated `id` if not present)
+- Redacted versions with `_OpenAI_redacted` suffix
+- User-edited versions with `_user_edited` suffix
+
+**Example output:**
 ```csv
-id,post_text_original,post_text_OpenAI_redacted
-1,"Sample text with PII like John Doe from New York","Sample text with PII like [REDACTED] from [REDACTED]"
+id,user_comment,user_comment_OpenAI_redacted,user_comment_user_edited,post_title,post_title_OpenAI_redacted,post_title_user_edited
+1,"John Doe from New York...","[REDACTED] from [REDACTED]...",,"My healthcare journey","My healthcare journey",,
+2,"Contact me at jane@email.com...","Contact me at [REDACTED]...",,"Support request","Support request",,
 ```
 
 ## Environment Variables
