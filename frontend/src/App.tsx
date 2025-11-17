@@ -666,7 +666,7 @@ function App() {
             {/* <a href="https://rpplpartnership.org/" target="_blank" rel="noopener noreferrer">
               <img src="/rppl-logo.svg" alt="RPPL Logo" className="h-16 w-auto hover:opacity-80 transition-opacity" />
             </a> */}
-            <h1 className="text-4xl font-bold">Data Privacy Toolkit</h1>
+            <h1 className="text-4xl font-bold">RPPL Redact: Data Privacy Toolkit</h1>
           </div>
           <p className="text-lg opacity-95">Integrated de-identification and redaction review system</p>
         </div>
@@ -1208,8 +1208,53 @@ function App() {
           </div>
         </div>
       </div>
-      <footer className="text-center text-white text-sm py-4 mt-4 opacity-80">
-        <p className="text-sm opacity-95">This interface, designed by <a href="https://ld-insights.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-200 transition-colors"> Learning Data Insights</a>, is based on research and development at the <a href="https://www.upenn.edu/" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-200 transition-colors">University of Pennsylvania</a> and <a href="https://rpplpartnership.org/" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-200 transition-colors"> RPPL</a>. This prototype has not yet been fully reviewed. &copy; {new Date().getFullYear()}  </p>
+      <footer className="text-center text-white py-8 mt-8">
+        <div className="container mx-auto px-4">
+          <p className="text-base mb-6 max-w-3xl mx-auto">
+            This interface was developed by{' '}
+            <a href="https://www.learningdatainsights.com/" target="_blank" rel="noopener noreferrer" className="underline hover:opacity-80 transition-opacity">
+              Learning Data Insights
+            </a>
+            , building on research and development from the{' '}
+            <a href="https://www.upenn.edu/" target="_blank" rel="noopener noreferrer" className="underline hover:opacity-80 transition-opacity">
+              University of Pennsylvania
+            </a>
+            {' '}and{' '}
+            <a href="https://rpplpartnership.org/" target="_blank" rel="noopener noreferrer" className="underline hover:opacity-80 transition-opacity">
+              Research Partnership for Professional Learning
+            </a>
+            .
+          </p>
+
+          {/* Logos */}
+          <div className="flex justify-center items-center gap-8 mb-6 flex-wrap">
+            <a href="https://www.learningdatainsights.com/" target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
+              <img src="/LDI_transparent_logo.png" alt="Learning Data Insights Logo" className="h-16 w-auto bg-white rounded px-3 py-2" />
+            </a>
+            <a href="https://rpplpartnership.org/" target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
+              <img src="/RPPL_Primary_Logo-Wine.png" alt="RPPL Logo" className="h-16 w-auto bg-white rounded px-3 py-2" />
+            </a>
+            <a href="https://www.upenn.edu/" target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
+              <img src="/pennlogo-large.png" alt="University of Pennsylvania Logo" className="h-16 w-auto bg-white rounded px-3 py-2" />
+            </a>
+            <a href="https://learninganalytics.upenn.edu/" target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
+              <img src="/PCLA_logo.png" alt="Penn Center for Learning Analytics Logo" className="h-16 w-auto bg-white rounded px-3 py-2" />
+            </a>
+          </div>
+
+          {/* Copyright and Terms */}
+          <p className="text-sm opacity-90">
+            &copy; {new Date().getFullYear()} Learning Data Insights. All rights reserved.{' '}
+            <a
+              href="https://docs.google.com/document/d/19auj_WrbWpE9A6MFJlVZHBS2TyF9hk3dNCPQIPjtSe8/edit?usp=sharing"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-blue-200 transition-colors"
+            >
+              Learn more in our Terms of Use
+            </a>.
+          </p>
+        </div>
       </footer>
 
       {/* Changes Modal */}
