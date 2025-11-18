@@ -1210,16 +1210,20 @@ function App() {
       </div>
       <footer className="text-center text-white py-8 mt-8">
         <div className="container mx-auto px-4">
-          <p className="text-base mb-6 max-w-3xl mx-auto">
+          <p className="text-base mb-6 max-w-4xl mx-auto">
             This interface was developed by{' '}
             <a href="https://www.learningdatainsights.com/" target="_blank" rel="noopener noreferrer" className="underline hover:opacity-80 transition-opacity">
               Learning Data Insights
             </a>
             , building on research and development from the{' '}
+            <a href="https://learninganalytics.upenn.edu/" target="_blank" rel="noopener noreferrer" className="underline hover:opacity-80 transition-opacity">
+              Penn Center for Learning Analytics
+            </a>
+            {' '}at the{' '}
             <a href="https://www.upenn.edu/" target="_blank" rel="noopener noreferrer" className="underline hover:opacity-80 transition-opacity">
               University of Pennsylvania
             </a>
-            {' '}and{' '}
+            , and the{' '}
             <a href="https://rpplpartnership.org/" target="_blank" rel="noopener noreferrer" className="underline hover:opacity-80 transition-opacity">
               Research Partnership for Professional Learning
             </a>
@@ -1245,13 +1249,14 @@ function App() {
           {/* Copyright and Terms */}
           <p className="text-sm opacity-90">
             &copy; {new Date().getFullYear()} Learning Data Insights. All rights reserved.{' '}
+            Learn more in our{' '}
             <a
               href="https://docs.google.com/document/d/19auj_WrbWpE9A6MFJlVZHBS2TyF9hk3dNCPQIPjtSe8/edit?usp=sharing"
               target="_blank"
               rel="noopener noreferrer"
               className="underline hover:text-blue-200 transition-colors"
             >
-              Learn more in our Terms of Use
+            Terms of Use
             </a>.
           </p>
         </div>
