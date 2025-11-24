@@ -51,7 +51,7 @@ rppl-privacy-toolkit/
 - Node.js 16+
 - OpenAI API key ([Get one here](https://platform.openai.com/api-keys))
 
-## Quick Start with Docker
+## Quick Start with Docker using OpenAI API
 
 Docker provides a single-command setup with no need to install Python, Node.js, or manage virtual environments.
 
@@ -70,7 +70,7 @@ cp .env.example .env
 ### 2. Start the Application
 
 ```bash
-docker-compose up
+docker compose up
 ```
 
 The application will be available at:
@@ -79,13 +79,103 @@ The application will be available at:
 
 To stop the application:
 ```bash
-docker-compose down
+docker compose down
 ```
 
 To rebuild after code changes:
 ```bash
-docker-compose up --build
+docker compose up --build
 ```
+
+## Docker with Local LLMs
+
+If you'd like to utilize local LLMs instead of external APIs (e.g., OpenAI), this application can work seamlessly with `Ollama` or `LM Studio`. Below are the configuration details and instructions for setting up each.
+
+**Note:** When setting up local LLMs, you need to specify the name and size of the model (e.g., `gpt-oss:20b`, `gpt-oss:120b`, `llama3.3:70b`) in your `.env` file. Before selecting a model, verify that your machine has enough VRAM to support it. Reasonable results can be obtained with models of size at least 20b or larger. Smaller models may not perform well for this task.
+
+---
+
+### 1. Using Ollama
+
+[Ollama](https://ollama.com/) is a platform that allows you to run local language models with ease. Follow these steps to integrate Ollama:
+
+#### Prerequisites
+
+- Install Docker and Docker Compose on your system.
+- Ensure your `.env` file contains the appropriate settings for using Ollama:
+  
+  ```env
+  # Ollama Configuration
+  OPENAI_API_KEY=ollama
+  OPENAI_BASE_URL=http://ollama:11434/v1
+  DEIDENTIFICATION_MODEL=gpt-oss:20b
+  ```
+
+
+#### Steps to Run with Ollama
+
+1. Use the provided `docker-compose-ollama.yml` file to set up and run the local Ollama service.
+   ```bash
+   docker compose -f docker-compose-ollama.yml up
+   ```
+
+2. This will:
+   - Start an Ollama server on port `11434`.
+   - Automatically pull the specified model (defined by `DEIDENTIFICATION_MODEL` in `.env`). Downloading and starting the model will take some time depending on your network connection and available computer resources.
+
+3. Use the same `docker-compose.yml` file to start the backend and frontend services along with the ollama service:
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose-ollama.yml up -d
+   ```
+
+After setup, the application will be accessible at:
+- **Frontend**: http://localhost:3000
+- **Backend API**: http://localhost:5000
+
+Ollama will run locally and process requests without sending data to external APIs.
+
+---
+
+### 2. Using LM Studio
+
+[LM Studio](https://lmstudio.ai/) allows users to run local language models on personal hardware (CPU or GPU). It has a friendly user interface and therefore you may prefer this option over Ollama.
+
+#### Prerequisites
+
+- Install Docker and Docker Compose on your system.
+- Open LM Studio and download a model (e.g. `gpt-oss-20b`).
+- Ensure that LM Studio is configured properly to expose an API endpoint. Update the `.env` file with the following settings:
+
+  ```env
+  # LM Studio Configuration
+  OPENAI_API_KEY=lmstudio
+  OPENAI_BASE_URL=http://<lmstudio-ip>:1234/v1
+  DEIDENTIFICATION_MODEL=gpt-oss-20b
+  ```
+
+  Replace `<lmstudio-ip>` with the actual IP address where LM Studio API is running (e.g., `localhost` or your server's IP).
+
+#### Steps to Run with LM Studio
+
+1. **Start LM Studio**:
+   - If LM Studio isn't running already, follow their official guide for setup and starting the server.
+   - Ensure it listens on the appropriate port (default: `1234`).
+
+2. Start the application backend and frontend services with Docker:
+   ```bash
+   docker compose up
+   ```
+
+After setup, the application will process de-identification tasks via LM Studio, keeping all data processing local.
+
+---
+
+### Notes
+
+- Both Ollama and LM Studio require downloading and running the language models locally. Be sure to have adequate disk space and system resources to handle model storage and runtime.
+- For help configuring local models or troubleshooting, consult the official documentation for [Ollama](https://ollama.com/) or [LM Studio](https://lmstudio.ai/).
+
+
 
 ## Manual Installation
 
