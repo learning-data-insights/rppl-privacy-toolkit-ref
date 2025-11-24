@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  ollama:
+    image: docker.io/ollama/ollama:latest
+    container_name: ollama
+    env_file:
+      - .env
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/data
+    networks:
+      - rppl-network
+    entrypoint: ["/bin/sh", "-c"]
+    command: |
+      "ollama serve & 
+       sleep 3
+       ollama pull ${DEIDENTIFICATION_MODEL}
+       wait
+      "
+    tty: true
+    restart: always
+
+volumes:
+  ollama-data:
