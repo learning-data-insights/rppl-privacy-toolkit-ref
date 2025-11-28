@@ -284,14 +284,6 @@ The React frontend will run on `http://localhost:3000`
    - Click "Save & Download" to export results
    - Output files include original columns, redacted versions (e.g., `column_name_OpenAI_redacted`), and user-edited versions
 
-## API Endpoints
-
-- `POST /api/upload` - Upload CSV files
-- `GET /api/columns/<session_id>` - Get column information for uploaded files
-- `POST /api/deidentify` - Process files for de-identification (supports `columns_to_process` parameter)
-- `POST /api/update-redactions` - Update redaction states
-- `GET /api/download/<session_id>` - Download processed files
-- `GET /api/prompts` - Get available prompts
 
 ## Data Format
 
@@ -306,11 +298,6 @@ comment_id,user_comment,post_title
 2,"Contact me at jane@email.com for details","Support request"
 ```
 
-**Legacy format (still supported):**
-```csv
-id,post_text_original
-1,"Sample text with PII like John Doe from New York"
-```
 
 ### Output Format
 
@@ -326,14 +313,6 @@ id,user_comment,user_comment_OpenAI_redacted,user_comment_user_edited,post_title
 2,"Contact me at jane@email.com...","Contact me at [REDACTED]...",,"Support request","Support request",,
 ```
 
-## Environment Variables
-
-Create a `.env` file in the backend directory (optional):
-
-```env
-OPENAI_API_KEY=your-api-key-here
-FLASK_ENV=development
-```
 
 ## Production Deployment
 
@@ -364,10 +343,6 @@ To add new de-identification prompts:
 Place sample CSV files in `backend/data/sample_data/` for testing:
 - `original_files/`: CSV files with PII
 - `human_redacted_files/`: Ground truth files with validated redactions
-
-## License
-
-[Your License Here]
 
 ## Support
 
