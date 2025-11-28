@@ -172,18 +172,10 @@ def deidentify():
         if not session_id or session_id not in sessions:
             return jsonify({'error': 'Invalid session'}), 400
 
-        # Use provided API key if present, otherwise fall back to environment variable
-        if not api_key:
-            api_key = os.getenv('OPENAI_API_KEY')
-            if not api_key:
-                logger.error('No API key provided and OPENAI_API_KEY not set in environment')
-                return jsonify({'error': 'API key required'}), 400
-            logger.info('Using default API key from environment variable')
-
         session = sessions[session_id]
         results = []
 
-        deidentification_service.set_api_key(api_key)
+        deidentification_service.configure(api_key=api_key)
 
         prompt_text = data.get('prompt_text')
 
@@ -658,6 +650,22 @@ def get_prompts():
             'text': 'Please remove any personally identifiable information (PII) and replace with [REDACTED].'
         }])
 
+@application.route('/api/config', methods=['GET'])
+def get_config():
+    """Get current API configuration to display in UI"""
+    try:
+        # Get the current configuration from the deidentification service
+        config = {
+            'model': deidentification_service.model,
+            'base_url': deidentification_service.base_url,
+            'is_local_model': deidentification_service.base_url != "https://api.openai.com/v1",
+            'is_openai': deidentification_service.base_url == "https://api.openai.com/v1"
+        }
+        return jsonify(config)
+    except Exception as e:
+        logger.error(f"Error getting config: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 # Serve the React frontend
 @application.route('/')
 def serve_frontend():
@@ -679,4 +687,4 @@ def serve_static(path):
         return send_file('frontend/dist/index.html')
 
 if __name__ == '__main__':
-    application.run(debug=True, port=5000)
+    application.run(host="0.0.0.0", debug=True, port=5000)

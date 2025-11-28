@@ -6,16 +6,43 @@ import logging
 logger = logging.getLogger(__name__)
 
 class DeidentificationService:
-    def __init__(self, api_key=None):
-        self.api_key = api_key
+    def __init__(self, api_key=None, base_url=None, model=None):
         self.client = None
-        if api_key:
-            self.client = OpenAI(api_key=api_key)
-        
+        self.model = None
+        self.configure(api_key=api_key, base_url=base_url, model=model)
+
         # Load prompts from existing CSV file
         self.prompts_df = self.load_prompts()
         self.default_prompt = self.prompts_df['prompt'].iloc[0] if not self.prompts_df.empty else ""
     
+    def configure(self, api_key=None, base_url=None, model=None):
+        final_api_key = (
+            api_key or
+            os.getenv("OPENAI_API_KEY") or
+            "ollama"
+        )
+
+        final_base_url = (
+            base_url or
+            os.getenv("OPENAI_BASE_URL") or
+            "https://api.openai.com/v1"
+        )
+
+        final_model = (
+            model or
+            os.getenv("DEIDENTIFICATION_MODEL") or
+            "gpt-4o"
+        )
+
+        self.client = OpenAI(
+            api_key=final_api_key,
+            base_url=final_base_url
+        )
+
+        self.model = final_model
+        self.api_key = final_api_key
+        self.base_url = final_base_url
+
     def load_prompts(self):
         """Load prompts from the Prompts.csv file"""
         prompts_path = os.path.join(
@@ -29,10 +56,10 @@ class DeidentificationService:
             logger.error(f"Error loading prompts from CSV: {str(e)}")
             return pd.DataFrame({'prompt': ['']})
     
-    def set_api_key(self, api_key):
-        """Set or update the OpenAI API key"""
-        self.api_key = api_key
-        self.client = OpenAI(api_key=api_key)
+    # def set_api_key(self, api_key):
+    #     """Set or update the OpenAI API key"""
+    #     self.api_key = api_key
+    #     self.client = OpenAI(api_key=api_key, base_url="http://ollama:11434/v1")
     
     def api_call(self, post_text, prompt):
         """Direct copy of the original api_call function from de_identified_csv_generator.py"""
@@ -43,7 +70,7 @@ class DeidentificationService:
         try:
             message_content = f'{prompt}\n{post_text}'
             response_check = self.client.chat.completions.create(
-                model="gpt-4.1-mini",
+                model=self.model,
                 messages=[
                     {"role": "system", "content": "You are a helpful assistant."},
                     {"role": "user", "content": message_content}
@@ -94,7 +121,7 @@ class DeidentificationService:
             batch_content += "\nReturn the redacted versions in the same order, separated by '---NEXT---'. Do not include the [TEXT N] markers in your response."
             
             response = self.client.chat.completions.create(
-                model="gpt-4.1-mini",
+                model=self.model,
                 messages=[
                     {"role": "system", "content": "You are a helpful assistant that redacts sensitive information from text."},
                     {"role": "user", "content": batch_content}

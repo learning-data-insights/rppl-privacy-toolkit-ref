@@ -72,6 +72,8 @@ function App() {
   // Column selection state
   const [availableColumns, setAvailableColumns] = useState<any[]>([]);
   const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
+  // API configuration state
+  const [apiConfig, setApiConfig] = useState<any>(null);
 
   const handleSavePrompt = async (updated: Prompt) => {
     // Create a new session-only Custom Prompt and select it
@@ -96,9 +98,10 @@ function App() {
     }
   };
 
-  // Load available prompts on mount
+  // Load available prompts and API config on mount
   useEffect(() => {
     loadPrompts();
+    loadApiConfig();
   }, []);
 
   const loadPrompts = async () => {
@@ -113,6 +116,15 @@ function App() {
       if (promptsArray.length > 0) setSelectedPromptId(promptsArray[0].id);
     } catch (error) {
       console.error('Failed to load prompts:', error);
+    }
+  };
+
+  const loadApiConfig = async () => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/config`);
+      setApiConfig(response.data);
+    } catch (error) {
+      console.error('Failed to load API config:', error);
     }
   };
 
@@ -844,7 +856,25 @@ function App() {
                 
                 {/* API Key Configuration */}
                 <div className="bg-gray-50 rounded-lg p-6 mb-6">
-                  <h3 className="text-lg font-semibold mb-4">OpenAI API Key</h3>
+                  <h3 className="text-lg font-semibold mb-4">API Configuration</h3>
+
+                  {/* Show current model configuration if local model is detected */}
+                  {apiConfig && apiConfig.is_local_model && (
+                    <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded">
+                      <div className="flex items-start gap-2">
+                        <span className="text-green-600 font-semibold">✓</span>
+                        <div className="flex-1">
+                          <p className="text-sm font-semibold text-green-900">Local Model Configured</p>
+                          <p className="text-sm text-green-800 mt-1">
+                            <strong>Model:</strong> {apiConfig.model}
+                          </p>
+                          <p className="text-sm text-green-800">
+                            <strong>Endpoint:</strong> {apiConfig.base_url}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Toggle for custom API key */}
                   <label className="flex items-center gap-3 cursor-pointer mb-4">
@@ -877,8 +907,18 @@ function App() {
                     </>
                   )}
 
-                  {!useCustomApiKey && (
-                    <p className="text-sm text-gray-600">Using default API key configured in the environment</p>
+                  {!useCustomApiKey && !apiConfig?.is_local_model && (
+                    <p className="text-sm text-gray-600">Using default OpenAI API key configured in the environment</p>
+                  )}
+
+                  {/* Informational note about local models */}
+                  {!apiConfig?.is_local_model && (
+                    <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded text-sm">
+                      <p className="text-blue-900">
+                        <strong>Advanced:</strong> Want to use local LLMs (Ollama or LM Studio) instead of OpenAI?
+                        See the <a href="https://github.com/learning-data-insights/rppl-privacy-toolkit-ref" style={{ textDecoration: 'underline', color: 'blue' }} target="_blank" rel="noopener noreferrer">README file</a> (section "Docker with Local LLMs") for setup instructions.
+                      </p>
+                    </div>
                   )}
                 </div>
 
