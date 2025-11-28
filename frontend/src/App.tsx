@@ -80,7 +80,8 @@ function App() {
       name: 'Custom Prompt',
       text: updated.text
     };
-    setAvailablePrompts(prev => [customPrompt, ...prev]);
+    // Filter out any existing custom prompts to ensure only one exists
+    setAvailablePrompts(prev => [customPrompt, ...prev.filter(p => p.name !== 'Custom Prompt')]);
     setSelectedPromptId(customPrompt.id);
     setEditPromptOpen(false);
     setEditingPrompt(null);
@@ -113,6 +114,29 @@ function App() {
     } catch (error) {
       console.error('Failed to load prompts:', error);
     }
+  };
+
+  const handleStepNavigation = (targetStep: number) => {
+    // Only allow navigating to previous steps
+    if (targetStep >= currentStep) return;
+
+    // Clear appropriate state when navigating backwards
+    if (targetStep === 1) {
+      // Going back to file upload - clear everything except uploaded files
+      setSessionId(null);
+      setProcessedData(null);
+      setCurrentDiff('');
+      setSelectedFile(null);
+      setAvailableColumns([]);
+      setSelectedColumns([]);
+    } else if (targetStep === 2 && currentStep === 3) {
+      // Going back to settings from results - clear results but keep session
+      setProcessedData(null);
+      setCurrentDiff('');
+      setSelectedFile(null);
+    }
+
+    setCurrentStep(targetStep);
   };
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>, isGroundTruth = false) => {
@@ -683,10 +707,10 @@ function App() {
               <div
                 key={step.num}
                 className={`flex-1 p-4 text-center cursor-pointer transition-all ${
-                  currentStep === step.num ? 'bg-white' : 
+                  currentStep === step.num ? 'bg-white' :
                   currentStep > step.num ? 'bg-blue-50' : ''
                 }`}
-                onClick={() => step.num < currentStep && setCurrentStep(step.num)}
+                onClick={() => handleStepNavigation(step.num)}
               >
                 <div className={`inline-flex items-center justify-center w-8 h-8 rounded-full mb-2 ${
                   currentStep === step.num ? 'bg-blue-600 text-white' :
@@ -1029,7 +1053,16 @@ function App() {
 
                 <div className="flex justify-center gap-4 mt-8">
                   <button
-                    onClick={() => setCurrentStep(1)}
+                    onClick={() => {
+                      // Clear session-related state when going back to allow file changes
+                      setSessionId(null);
+                      setProcessedData(null);
+                      setCurrentDiff('');
+                      setSelectedFile(null);
+                      setAvailableColumns([]);
+                      setSelectedColumns([]);
+                      setCurrentStep(1);
+                    }}
                     className="px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
                     disabled={processing}
                   >
@@ -1182,7 +1215,13 @@ function App() {
 
                   <div className="flex justify-center gap-4 mt-6">
                     <button
-                      onClick={() => setCurrentStep(2)}
+                      onClick={() => {
+                        // Clear results state when returning to allow re-processing
+                        setProcessedData(null);
+                        setCurrentDiff('');
+                        setSelectedFile(null);
+                        setCurrentStep(2);
+                      }}
                       className="px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
                     >
                       Return
