@@ -19,12 +19,16 @@ interface ProcessedResult {
   original: any[];
   redacted: any[];
   diff_file?: string;
-  metrics?: {
-    accuracy: number;
-    precision: number;
-    recall: number;
-    kappa: number;
-  };
+  metrics?: Array<{
+    column: string;
+    metrics: {
+      accuracy: number;
+      precision: number;
+      recall: number;
+      kappa: number;
+    };
+    error?: string;
+  }>;
 }
 
 declare global {
@@ -391,9 +395,11 @@ function App() {
     setProcessingStatus('Preparing files...');
 
     try {
-      // Upload files if not already uploaded
+      // Upload files if not already uploaded, OR re-upload if ground truth was added after initial upload
       let newSessionId = sessionId;
-      if (!newSessionId) {
+      if (!newSessionId || (hasGroundTruth && groundTruthFiles.length > 0)) {
+        // Clear existing session to force re-upload with ground truth files
+        setSessionId(null);
         newSessionId = await uploadFilesToServer();
       }
       
@@ -829,8 +835,8 @@ function App() {
                 <div className="flex justify-center mt-8">
                   <button
                     onClick={async () => {
+                      // Upload files to get column info for Step 2
                       if (uploadedFiles.length > 0 && !sessionId) {
-                        // Upload files and fetch column info before proceeding
                         try {
                           await uploadFilesToServer();
                         } catch (error) {
@@ -1012,7 +1018,8 @@ function App() {
                   {hasGroundTruth && (
                     <>
                       <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
-                        <strong>Required Column:</strong> Ground truth files must include a column named <code className="bg-yellow-100 px-2 py-0.5 rounded font-semibold">post_text_human_redacted</code>
+                        <strong>Required Columns:</strong> For each column you process, ground truth files need a matching <code className="bg-yellow-100 px-1 rounded">_human_redacted</code> column.
+                        <br /><span className="text-yellow-700">Example: <code className="bg-yellow-100 px-1 rounded">comment</code> → <code className="bg-yellow-100 px-1 rounded">comment_human_redacted</code></span>
                       </div>
                       <div
                         className={`mt-4 ${isDraggingGT ? 'border border-yellow-400 bg-yellow-50 p-4 rounded' : ''}`}
@@ -1171,7 +1178,7 @@ function App() {
                 </details>
                 
                 {/* Metrics Table */}
-                {processedData.some(d => d.metrics) && (
+                {processedData.some(d => d.metrics && d.metrics.length > 0) && (
                   <div className="mb-8">
                     <h3 className="text-lg font-semibold mb-4">Performance Metrics</h3>
                     <div className="overflow-x-auto">
@@ -1179,6 +1186,7 @@ function App() {
                         <thead>
                           <tr className="bg-blue-600 text-white">
                             <th className="p-3 text-left">File Name</th>
+                            <th className="p-3 text-left">Column</th>
                             <th className="p-3 text-center">Accuracy</th>
                             <th className="p-3 text-center">Precision</th>
                             <th className="p-3 text-center">Recall</th>
@@ -1186,22 +1194,27 @@ function App() {
                           </tr>
                         </thead>
                         <tbody>
-                          {processedData.map((file, idx) => (
-                            <tr key={idx} className="border-b hover:bg-gray-50">
-                              <td className="p-3">{file.fileName}</td>
-                              <td className="p-3 text-center font-semibold text-green-600">
-                                {file.metrics?.accuracy.toFixed(3) || '-'}
-                              </td>
-                              <td className="p-3 text-center font-semibold text-green-600">
-                                {file.metrics?.precision.toFixed(3) || '-'}
-                              </td>
-                              <td className="p-3 text-center font-semibold text-green-600">
-                                {file.metrics?.recall.toFixed(3) || '-'}
-                              </td>
-                              <td className="p-3 text-center font-semibold text-green-600">
-                                {file.metrics?.kappa.toFixed(3) || '-'}
-                              </td>
-                            </tr>
+                          {processedData.map((file, fileIdx) => (
+                            file.metrics && file.metrics.length > 0 ? (
+                              file.metrics.map((metricData: any, colIdx: number) => (
+                                <tr key={`${fileIdx}-${colIdx}`} className="border-b hover:bg-gray-50">
+                                  <td className="p-3">{file.fileName}</td>
+                                  <td className="p-3 font-medium">{metricData.column}</td>
+                                  <td className="p-3 text-center font-semibold text-green-600">
+                                    {metricData.metrics?.accuracy?.toFixed(3) || '-'}
+                                  </td>
+                                  <td className="p-3 text-center font-semibold text-green-600">
+                                    {metricData.metrics?.precision?.toFixed(3) || '-'}
+                                  </td>
+                                  <td className="p-3 text-center font-semibold text-green-600">
+                                    {metricData.metrics?.recall?.toFixed(3) || '-'}
+                                  </td>
+                                  <td className="p-3 text-center font-semibold text-green-600">
+                                    {metricData.metrics?.kappa?.toFixed(3) || '-'}
+                                  </td>
+                                </tr>
+                              ))
+                            ) : null
                           ))}
                         </tbody>
                       </table>

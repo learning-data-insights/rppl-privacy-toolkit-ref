@@ -107,7 +107,7 @@ def upload_files():
         
         files = request.files.getlist('files')
         ground_truth_files = request.files.getlist('groundTruthFiles')
-        
+
         session_id = datetime.now().strftime('%Y%m%d_%H%M%S')
         sessions[session_id] = {
             'files': [],
@@ -217,19 +217,47 @@ def deidentify():
                 columns_to_process=columns_for_this_file
             )
             
-            # Calculate metrics if ground truth available
-            metrics = None
+            # Calculate metrics if ground truth available - per column
+            metrics_list = []
             if session['ground_truth']:
-                # Find matching ground truth file
-                gt_file = next((gt for gt in session['ground_truth'] 
+                # Find matching ground truth file (try exact match first, then base name match)
+                gt_file = next((gt for gt in session['ground_truth']
                               if gt['name'] == file_info['name']), None)
+
+                # If no exact match, try matching by base name (without _gt suffix)
+                if not gt_file:
+                    base_name = file_info['name'].replace('.csv', '')
+                    for gt in session['ground_truth']:
+                        gt_base = gt['name'].replace('.csv', '').replace('_gt', '').replace('-gt', '')
+                        if gt_base == base_name or base_name in gt['name']:
+                            gt_file = gt
+                            break
+
                 if gt_file:
                     gt_df = pd.DataFrame(gt_file['data'])
-                    metrics = evaluation_service.calculate_metrics(
-                        redacted_data, 
-                        gt_df,
-                        df
-                    )
+
+                    # Calculate metrics for each processed column
+                    for col_name in columns_for_this_file:
+                        try:
+                            col_metrics = evaluation_service.calculate_metrics(
+                                redacted_data,
+                                gt_df,
+                                df,
+                                column_name=col_name
+                            )
+                            metrics_list.append({
+                                'column': col_name,
+                                'metrics': col_metrics
+                            })
+                            logger.info(f"Metrics calculated for column '{col_name}' in file '{file_info['name']}'")
+                        except Exception as e:
+                            logger.error(f"Failed to calculate metrics for column '{col_name}' in file '{file_info['name']}': {str(e)}")
+                            # Continue with other columns even if one fails
+                            metrics_list.append({
+                                'column': col_name,
+                                'metrics': None,
+                                'error': str(e)
+                            })
             
             # Generate diff for this file
             # Pass the full original data - DiffGenerator will extract relevant columns
@@ -247,7 +275,7 @@ def deidentify():
                 diff_string = "# Error: No diff generated"
             
             logger.info(f"Diff generated, length: {len(diff_string)}")
-            
+
             # Save diff to a file for this session
             diff_filename = f"{session_id}_{file_info['name']}.diff"
             diff_path = os.path.join(application.config['RESULTS_FOLDER'], diff_filename)
@@ -258,7 +286,7 @@ def deidentify():
                 'fileName': file_info['name'],
                 'original': convert_to_json_serializable(file_info['data']),
                 'redacted': convert_to_json_serializable(redacted_data),
-                'metrics': convert_to_json_serializable(metrics) if metrics else None,
+                'metrics': convert_to_json_serializable(metrics_list) if metrics_list else None,
                 'diff_file': diff_filename  # Store filename instead of content
             })
         
