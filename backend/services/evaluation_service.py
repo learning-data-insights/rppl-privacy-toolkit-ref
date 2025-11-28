@@ -21,43 +21,50 @@ class EvaluationService:
         words = [word for word in words if word.isalnum() and word.lower() not in ['a', 'an', 'the']]
         return words
     
-    def calculate_metrics(self, redacted_data, ground_truth_df, original_df=None):
-        """Calculate metrics using logic from de_identified_csv_evaluator.py"""
-        
+    def calculate_metrics(self, redacted_data, ground_truth_df, original_df=None, column_name=None):
+        """
+        Calculate metrics by comparing AI-redacted text against human-redacted ground truth.
+
+        Args:
+            redacted_data: DataFrame or list with redacted data
+            ground_truth_df: DataFrame with ground truth redactions
+            original_df: Optional original DataFrame (unused, kept for API compatibility)
+            column_name: Column name to process (required)
+        """
+        if not column_name:
+            raise ValueError("column_name is required")
+
         # Convert list of dicts to DataFrame if needed
         if isinstance(redacted_data, list):
             redacted_df = pd.DataFrame(redacted_data)
         else:
             redacted_df = redacted_data
-        
-        # Prepare dataframes with required columns
-        if 'post_text_OpenAI_redacted' not in redacted_df.columns:
-            if 'post_text' in redacted_df.columns:
-                redacted_df['post_text_OpenAI_redacted'] = redacted_df['post_text']
-            elif 'post_text_OpenAI_redacted' in redacted_df.columns:
-                pass  # Already has the column
-        
-        if 'post_text_human_redacted' not in ground_truth_df.columns:
-            if 'post_text' in ground_truth_df.columns:
-                ground_truth_df['post_text_human_redacted'] = ground_truth_df['post_text']
-            elif 'post_text_redacted' in ground_truth_df.columns:
-                ground_truth_df['post_text_human_redacted'] = ground_truth_df['post_text_redacted']
-        
+
+        # Expected column names with standard suffixes
+        openai_col = f"{column_name}_OpenAI_redacted"
+        human_col = f"{column_name}_human_redacted"
+
+        # Check if required columns exist
+        if openai_col not in redacted_df.columns:
+            raise ValueError(f"Column '{openai_col}' not found in redacted data. Available: {redacted_df.columns.tolist()}")
+        if human_col not in ground_truth_df.columns:
+            raise ValueError(f"Column '{human_col}' not found in ground truth data. Available: {ground_truth_df.columns.tolist()}")
+
         # Merge dataframes on ID
         if 'id' in redacted_df.columns and 'id' in ground_truth_df.columns:
-            df = pd.merge(redacted_df[['id', 'post_text_OpenAI_redacted']], 
-                         ground_truth_df[['id', 'post_text_human_redacted']], 
+            df = pd.merge(redacted_df[['id', openai_col]],
+                         ground_truth_df[['id', human_col]],
                          on='id', how='inner')
         else:
             # If no ID column, merge by index
             df = pd.concat([
-                redacted_df[['post_text_OpenAI_redacted']].reset_index(drop=True),
-                ground_truth_df[['post_text_human_redacted']].reset_index(drop=True)
+                redacted_df[[openai_col]].reset_index(drop=True),
+                ground_truth_df[[human_col]].reset_index(drop=True)
             ], axis=1)
-        
+
         # Add word lists using the original functions
-        df['word_list_redacted'] = df['post_text_human_redacted'].apply(self.clean_text)
-        df['word_list_openai_redacted'] = df['post_text_OpenAI_redacted'].apply(self.clean_text)
+        df['word_list_redacted'] = df[human_col].apply(self.clean_text)
+        df['word_list_openai_redacted'] = df[openai_col].apply(self.clean_text)
         
         # Calculate metrics using the exact logic from the original script
         total_true_positives = 0
