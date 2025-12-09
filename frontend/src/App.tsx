@@ -78,6 +78,9 @@ function App() {
   const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
   // API configuration state
   const [apiConfig, setApiConfig] = useState<any>(null);
+  // Model selection state
+  const [selectedModel, setSelectedModel] = useState<string>('');
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
 
   const handleSavePrompt = async (updated: Prompt) => {
     // Create a new session-only Custom Prompt and select it
@@ -127,6 +130,11 @@ function App() {
     try {
       const response = await axios.get(`${API_BASE_URL}/config`);
       setApiConfig(response.data);
+      // Set available models and select the current model
+      if (response.data.available_models && response.data.available_models.length > 0) {
+        setAvailableModels(response.data.available_models);
+        setSelectedModel(response.data.model || response.data.available_models[0]);
+      }
     } catch (error) {
       console.error('Failed to load API config:', error);
     }
@@ -433,6 +441,11 @@ function App() {
       // Include selected columns for processing
       if (selectedColumns.length > 0) {
         payload.columns_to_process = selectedColumns;
+      }
+
+      // Include selected model
+      if (selectedModel) {
+        payload.model = selectedModel;
       }
 
       if (selectedPrompt) {
@@ -927,6 +940,33 @@ function App() {
                     </div>
                   )}
                 </div>
+
+                {/* Model Selection */}
+                {availableModels.length > 0 && (
+                  <div className="bg-gray-50 rounded-lg p-6 mb-6">
+                    <h3 className="text-lg font-semibold mb-4">Model Selection</h3>
+                    <div className="flex flex-col gap-2">
+                      <label htmlFor="model-select" className="text-sm font-medium text-gray-700">
+                        Select Model
+                      </label>
+                      <select
+                        id="model-select"
+                        value={selectedModel}
+                        onChange={(e) => setSelectedModel(e.target.value)}
+                        className="px-4 py-2 border rounded-lg bg-white"
+                      >
+                        {availableModels.map((model) => (
+                          <option key={model} value={model}>
+                            {model}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-sm text-gray-600 mt-1">
+                        Choose which model to use for de-identification
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Column Selection */}
                 {availableColumns.length > 0 && (

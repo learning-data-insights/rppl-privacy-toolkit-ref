@@ -66,16 +66,24 @@ class DeidentificationService:
         if not self.client:
             logger.error("API key not set - Please check your API key")
             raise ValueError("API key not set - Please check your API key")
-        
+
         try:
             message_content = f'{prompt}\n{post_text}'
+
+            # Determine which token parameter to use based on model
+            token_param = {}
+            if self.model.startswith('gpt-5'):
+                token_param['max_completion_tokens'] = 1000
+            else:
+                token_param['max_tokens'] = 1000
+
             response_check = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": "You are a helpful assistant."},
                     {"role": "user", "content": message_content}
                 ],
-                max_tokens=1000
+                **token_param
             )
             return response_check.choices[0].message.content.strip()
         except Exception as e:
@@ -119,16 +127,23 @@ class DeidentificationService:
                 batch_content += f"[TEXT {i}]\n{text}\n\n"
             
             batch_content += "\nReturn the redacted versions in the same order, separated by '---NEXT---'. Do not include the [TEXT N] markers in your response."
-            
+
+            # Determine which token parameter to use based on model
+            token_param = {}
+            if self.model.startswith('gpt-5'):
+                token_param['max_completion_tokens'] = 2000 * len(texts)
+            else:
+                token_param['max_tokens'] = 2000 * len(texts)
+
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": "You are a helpful assistant that redacts sensitive information from text."},
                     {"role": "user", "content": batch_content}
                 ],
-                max_tokens=2000 * len(texts)  # Scale tokens with batch size
+                **token_param
             )
-            
+
             result = response.choices[0].message.content.strip()
             
             # Split the result by separator
