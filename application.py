@@ -167,6 +167,7 @@ def deidentify():
         session_id = data.get('session_id')
         prompt_index = data.get('prompt_index', 0)
         api_key = data.get('api_key')
+        model = data.get('model')  # New parameter for model selection
         columns_to_process = data.get('columns_to_process')  # New parameter
 
         if not session_id or session_id not in sessions:
@@ -175,7 +176,7 @@ def deidentify():
         session = sessions[session_id]
         results = []
 
-        deidentification_service.configure(api_key=api_key)
+        deidentification_service.configure(api_key=api_key, model=model)
 
         prompt_text = data.get('prompt_text')
 
@@ -682,12 +683,17 @@ def get_prompts():
 def get_config():
     """Get current API configuration to display in UI"""
     try:
+        # Parse available models from environment variable
+        available_models_str = os.getenv('AVAILABLE_MODELS', 'gpt-4o-mini')
+        available_models = [model.strip() for model in available_models_str.split(',')]
+
         # Get the current configuration from the deidentification service
         config = {
             'model': deidentification_service.model,
             'base_url': deidentification_service.base_url,
             'is_local_model': deidentification_service.base_url != "https://api.openai.com/v1",
-            'is_openai': deidentification_service.base_url == "https://api.openai.com/v1"
+            'is_openai': deidentification_service.base_url == "https://api.openai.com/v1",
+            'available_models': available_models
         }
         return jsonify(config)
     except Exception as e:
